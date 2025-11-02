@@ -10,6 +10,49 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['dean','
 
 $user_id = $_SESSION['user_id'];
 
+// Ensure receipts table and handle receipt submission
+$conn->query("CREATE TABLE IF NOT EXISTS request_receipts (id INT AUTO_INCREMENT PRIMARY KEY, request_id INT NOT NULL, receiver_id INT NOT NULL, photo_path VARCHAR(255) NOT NULL, status VARCHAR(20) DEFAULT 'submitted', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, confirmed_at DATETIME NULL, confirmed_by INT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_receipt'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) { die('Security check failed'); }
+    $rid = intval($_POST['request_id'] ?? 0);
+    if ($rid !== intval($_GET['id'] ?? 0)) { die('Mismatched request id'); }
+    if (!isset($_FILES['receipt_photo']) || $_FILES['receipt_photo']['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['flash_error'] = 'Please attach a receipt photo.';
+        header('Location: view_requests.php?id=' . $rid);
+        exit;
+    }
+    $f = $_FILES['receipt_photo'];
+    $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+    $allowed = ['jpg','jpeg','png','gif','webp'];
+    if (!in_array($ext, $allowed)) {
+        $_SESSION['flash_error'] = 'Invalid file type. Allowed: jpg, jpeg, png, gif, webp';
+        header('Location: view_requests.php?id=' . $rid);
+        exit;
+    }
+    $destDir = realpath(__DIR__ . '/../') . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'receipts';
+    if (!is_dir($destDir)) { @mkdir($destDir, 0777, true); }
+    $fname = 'receipt_' . $rid . '_' . time() . '.' . $ext;
+    $dest = $destDir . DIRECTORY_SEPARATOR . $fname;
+    if (!move_uploaded_file($f['tmp_name'], $dest)) {
+        $_SESSION['flash_error'] = 'Failed to save uploaded file.';
+        header('Location: view_requests.php?id=' . $rid);
+        exit;
+    }
+    $relPath = '../uploads/receipts/' . $fname;
+    $ins = $conn->prepare("INSERT INTO request_receipts (request_id, receiver_id, photo_path, status) VALUES (?, ?, ?, 'submitted')");
+    $ins->bind_param('iis', $rid, $user_id, $relPath);
+    $ins->execute();
+    $ins->close();
+    $role = $_SESSION['role'];
+    $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'receipt_submitted', 'Receipt photo uploaded', NOW())");
+    $ia->bind_param('iis', $rid, $user_id, $role);
+    $ia->execute();
+    $ia->close();
+    $_SESSION['flash_success'] = 'Receipt submitted to admin for confirmation.';
+    header('Location: view_requests.php?id=' . $rid);
+    exit;
+}
+
 // get college_office_id
 if (isset($_SESSION['college_office_id'])) {
     $college_office_id = $_SESSION['college_office_id'];
@@ -75,6 +118,37 @@ $can_act = false;
 $role = $_SESSION['role'] ?? '';
 if ($role === 'dean' && $request['status'] === 'pending_dean') $can_act = true;
 if ($role === 'head' && $request['status'] === 'pending_head') $can_act = true;
+
+// release schedule
+$rel_date = null;
+$rs = $conn->prepare("SELECT release_date FROM release_schedule WHERE request_id=? LIMIT 1");
+$rs->bind_param('i', $id);
+$rs->execute();
+$rres = $rs->get_result()->fetch_assoc();
+if ($rres) { $rel_date = $rres['release_date']; }
+$rs->close();
+
+// Fallback: infer from action log if schedule row missing
+if (!$rel_date) {
+    $as = $conn->prepare("SELECT comment FROM request_actions WHERE request_id=? AND action_type='approved' ORDER BY created_at DESC LIMIT 1");
+    $as->bind_param('i', $id);
+    $as->execute();
+    $ar = $as->get_result()->fetch_assoc();
+    $as->close();
+    if ($ar && !empty($ar['comment'])) {
+        if (preg_match('/Release date:\s*(\d{4}-\d{2}-\d{2})/i', $ar['comment'], $m)) {
+            $rel_date = $m[1];
+        }
+    }
+}
+
+// latest receipt
+$rec_stmt = $conn->prepare("SELECT * FROM request_receipts WHERE request_id=? ORDER BY created_at DESC LIMIT 1");
+$rec_stmt->bind_param('i', $id);
+$rec_stmt->execute();
+$latest_receipt = $rec_stmt->get_result()->fetch_assoc();
+$rec_stmt->close();
+
 ?>
 
 <!DOCTYPE html>
@@ -572,6 +646,38 @@ if ($role === 'head' && $request['status'] === 'pending_head') $can_act = true;
         <div class="alert-minimal alert-secondary">
             <i class="bi bi-info-circle"></i>
             <span>No actions available for this request (current status: <?= htmlspecialchars($status_text) ?>)</span>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($request['status'] === 'approved'): ?>
+        <div class="info-card">
+            <h5><i class="bi bi-truck"></i> Release & Receipt</h5>
+            <div class="info-row">
+                <div class="info-label">Scheduled Release Date</div>
+                <div class="info-value"><?= $rel_date ? htmlspecialchars(date('M d, Y', strtotime($rel_date))) : 'Not scheduled' ?></div>
+            </div>
+            <?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger mt-3"><?=$_SESSION['flash_error']; unset($_SESSION['flash_error']);?></div><?php endif; ?>
+            <?php if (!empty($_SESSION['flash_success'])): ?><div class="alert alert-success mt-3"><?=$_SESSION['flash_success']; unset($_SESSION['flash_success']);?></div><?php endif; ?>
+
+            <?php if ($latest_receipt): ?>
+                <div class="mt-3">
+                    <div class="info-label">Submitted Receipt</div>
+                    <div class="info-value">
+                        <a class="file-link" href="<?= htmlspecialchars($latest_receipt['photo_path']) ?>" target="_blank"><i class="bi bi-image"></i> View Receipt Photo</a>
+                        <div class="text-muted mt-1">Status: <?= htmlspecialchars($latest_receipt['status']) ?></div>
+                    </div>
+                </div>
+            <?php else: ?>
+                <form method="POST" enctype="multipart/form-data" class="mt-3">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                    <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
+                    <label class="form-label-minimal">Attach photo of released items (jpg, png, gif, webp)</label>
+                    <input type="file" name="receipt_photo" class="form-control form-control-minimal" accept="image/*" required>
+                    <div class="action-buttons mt-3">
+                        <button type="submit" name="submit_receipt" class="btn-minimal btn-success-minimal"><i class="bi bi-check2-circle"></i> Mark as Received</button>
+                    </div>
+                </form>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 

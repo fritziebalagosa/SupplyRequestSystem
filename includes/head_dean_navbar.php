@@ -3,7 +3,8 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 $current = basename($_SERVER['PHP_SELF']);
-$base = '/SupplyRequestSystem/dean';
+$role = $_SESSION['role'] ?? '';
+$base = ($role === 'head') ? '/SupplyRequestSystem/head' : '/SupplyRequestSystem/dean';
 $name = trim(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? ''));
 
 // include DB and helper functions
@@ -39,8 +40,12 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 					<a class="nav-link d-flex align-items-center <?= ($current==='dashboard.php')? 'active':'' ?>" href="<?= $base ?>/dashboard.php"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a>
 				</li>
 				<li class="nav-item px-3">
-					<a class="nav-link d-flex align-items-center <?= ($current==='dean_requests.php' || $current==='view_requests.php')? 'active':'' ?>" href="<?= $base ?>/dean_requests.php"><i class="bi bi-envelope me-2"></i>Requests</a>
-				</li>
+					<?php if ($role === 'head'): ?>
+            <a class="nav-link d-flex align-items-center <?= ($current==='head_requests.php' || $current==='view_request.php')? 'active':'' ?>" href="<?= $base ?>/head_requests.php"><i class="bi bi-envelope me-2"></i>Requests</a>
+            <?php else: ?>
+            <a class="nav-link d-flex align-items-center <?= ($current==='dean_requests.php' || $current==='view_requests.php')? 'active':'' ?>" href="<?= $base ?>/dean_requests.php"><i class="bi bi-envelope me-2"></i>Requests</a>
+            <?php endif; ?>
+        </li>
 				<li class="nav-item px-3">
 					<a class="nav-link d-flex align-items-center <?= ($current==='records.php')? 'active':'' ?>" href="<?= $base ?>/records.php"><i class="bi bi-journal-text me-2"></i>Records</a>
 				</li>
@@ -72,7 +77,7 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 					<strong><?= htmlspecialchars(trim($name ?: ($_SESSION['email'] ?? 'User'))) ?></strong>
 				</a>
 				<ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
-					<li><a class="dropdown-item" href="/SupplyRequestSystem/dean/dashboard.php"><i class="bi bi-gear me-2"></i>Profile Settings</a></li>
+					<li><a class="dropdown-item" href="<?= $base ?>/profile.php"><i class="bi bi-gear me-2"></i>Profile Settings</a></li>
 					<li><hr class="dropdown-divider"></li>
 					<li><a class="dropdown-item text-danger" href="/SupplyRequestSystem/auth/logout.php"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
 				</ul>

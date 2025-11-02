@@ -129,96 +129,129 @@ $recent_stmt->close();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Head Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= ucfirst($role) ?> Dashboard - WMSU OSRS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; background: #f8f9fa; }
-        .card { background: #fff; padding: 20px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .stats { display: flex; gap: 15px; }
-        .stat { flex: 1; text-align: center; padding: 15px; border-radius: 8px; background: #e9ecef; }
-        h3 { margin: 5px 0; }
-        .success { color: green; }
-        .error { color: red; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background: #f1f1f1; }
+        :root { --red-primary:#dc3545; --red-dark:#c82333; --red-light:#f8d7da; --gray-50:#fafafa; --gray-100:#f5f5f5; --gray-200:#eeeeee; --gray-700:#616161; --gray-900:#212121; }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Inter',sans-serif;background:var(--gray-50);color:var(--gray-900);line-height:1.6}
+        .container-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
+        .page-title{font-size:1.75rem;font-weight:600;color:var(--gray-900);letter-spacing:-.5px;margin-bottom:.25rem}
+        .page-subtitle{color:var(--gray-700);font-size:.9375rem;margin-bottom:2rem}
+        .summary-card{background:#fff;border-radius:12px;padding:1.5rem;border:1px solid var(--gray-200);transition:.2s;height:100%}
+        .summary-card:hover{border-color:var(--red-primary);box-shadow:0 4px 12px rgba(220,53,69,.08)}
+        .summary-card .label{font-size:.875rem;color:var(--gray-700);font-weight:500;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.5px}
+        .summary-card .number{font-size:2.25rem;font-weight:700;color:var(--gray-900);line-height:1}
+        .summary-card.card-total .number{color:var(--red-primary)}
+        .summary-card.card-approved .number{color:#28a745}
+        .summary-card.card-rejected .number{color:var(--red-primary)}
+        .summary-card.card-pending .number{color:#ffc107}
+        .section-card{background:#fff;border-radius:12px;border:1px solid var(--gray-200);overflow:hidden;margin-bottom:2rem}
+        .section-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--gray-200);background:#fff}
+        .section-header h2{font-size:1.125rem;font-weight:600;color:var(--gray-900);margin:0}
+        .section-body{padding:0}
+        .table-minimal{margin:0;width:100%}
+        .table-minimal thead th{background:var(--gray-50);color:var(--gray-700);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:1rem 1.5rem;border:none;border-bottom:1px solid var(--gray-200);text-align:left}
+        .table-minimal tbody td{padding:1rem 1.5rem;color:var(--gray-900);font-size:.9375rem;border:none;border-bottom:1px solid var(--gray-100);vertical-align:middle}
+        .table-minimal tbody tr:last-child td{border-bottom:none}
+        .table-minimal tbody tr:hover{background:var(--gray-50)}
+        .badge-minimal{display:inline-flex;align-items:center;padding:.35rem .75rem;border-radius:6px;font-size:.8125rem;font-weight:500;border:1px solid}
+        .badge-success{background:#d4edda;color:#155724;border-color:#c3e6cb}
+        .badge-secondary{background:var(--gray-200);color:var(--gray-700);border-color:var(--gray-300)}
+        .btn-minimal{padding:.4rem .875rem;border-radius:6px;font-weight:500;font-size:.875rem;border:1px solid;transition:.2s;text-decoration:none;display:inline-flex;align-items:center;gap:.375rem}
+        .btn-action-view{background:#d1ecf1;color:#0c5460;border-color:#bee5eb}
+        .btn-action-view:hover{background:#bee5eb;border-color:#17a2b8;color:#0c5460}
+        .empty-state{text-align:center;padding:2rem 1.5rem;color:var(--gray-700)}
+        .empty-state i{font-size:2.5rem;color:#e0e0e0;margin-bottom:.75rem}
     </style>
 </head>
 <body>
-        <div class="container mt-4">
-            <h2>Welcome <?= ucfirst($role) ?> Dashboard</h2>
+    <div class="container-main">
+        <h1 class="page-title">Welcome, <?= ucfirst($role) ?></h1>
+        <p class="page-subtitle">Dashboard overview for your college/office</p>
 
-    <div class="stats">
-        <div class="stat"><h3><?= $total_requests ?></h3><p>Total Requests</p></div>
-        <div class="stat"><h3><?= $approved_requests ?></h3><p>Approved</p></div>
-        <div class="stat"><h3><?= $rejected_requests ?></h3><p>Rejected</p></div>
-        <div class="stat"><h3><?= $pending_requests ?></h3><p>Pending</p></div>
-    </div>
-
-    <div class="card">
-        <h3>Recent Requests</h3>
-        <table>
-            <tr><th>ID</th><th>Title</th><th>Status</th><th>Date</th></tr>
-            <?php foreach ($recent_requests as $req): ?>
-                <tr>
-                    <td><?= $req['id'] ?></td>
-                    <td><?= htmlspecialchars($req['title']) ?></td>
-                    <td><?= ucfirst($req['status']) ?></td>
-                    <td><?= $req['created_at'] ?></td>
-                </tr>
-            <?php endforeach; ?>
-            <?php if (empty($recent_requests)) echo "<tr><td colspan='4'>No recent requests</td></tr>"; ?>
-        </table>
-    </div>
-
-    <div class="card">
-        <h3>Create Requester Account</h3>
-        <?php if ($has_requester): ?>
-            <p class="success">Requester already exists for your office.</p>
-        <?php else: ?>
-            <?php if (isset($success)) echo "<p class='success'>$success</p>"; ?>
-            <?php if (isset($error)) echo "<p class='error'>$error</p>"; ?>
-            <form method="POST">
-                <input type="text" name="first_name" placeholder="First Name" required><br><br>
-                <input type="text" name="middle_name" placeholder="Middle Name (optional)"><br><br>
-                <input type="text" name="last_name" placeholder="Last Name" required><br><br>
-                <input type="email" name="email" placeholder="Email" required><br><br>
-                <input type="password" name="password" placeholder="Password" required><br><br>
-                <button type="submit">Create Requester</button>
-            </form>
-        <?php endif; ?>
-    </div>
-    
-    <div class="container mt-3">
-        <div class="card">
-            <h3>Requester Accounts</h3>
-            <?php
-            // fetch requesters created by this dean/head
-            $rq = $conn->prepare("SELECT id, first_name, middle_name, last_name, email, status, created_at FROM users WHERE created_by = ? AND role = 'requester'");
-            $rq->bind_param('i', $dean_id);
-            $rq->execute();
-            $requesters = $rq->get_result()->fetch_all(MYSQLI_ASSOC);
-            $rq->close();
-            ?>
-            <table class="table table-striped">
-                <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
-                <tbody>
-                <?php if (empty($requesters)): ?>
-                    <tr><td colspan="6">No requester accounts created yet.</td></tr>
-                <?php else: foreach ($requesters as $r): ?>
-                    <tr>
-                        <td>#<?= htmlspecialchars($r['id']) ?></td>
-                        <td><?= htmlspecialchars($r['first_name'] . ' ' . ($r['middle_name'] ? $r['middle_name'] . ' ' : '') . $r['last_name']) ?></td>
-                        <td><?= htmlspecialchars($r['email']) ?></td>
-                        <td><?= htmlspecialchars(ucfirst($r['status'])) ?></td>
-                        <td><?= htmlspecialchars($r['created_at']) ?></td>
-                        <td><a class="btn btn-sm btn-primary" href="../dean/view_requester.php?id=<?= $r['id'] ?>">View</a></td>
-                    </tr>
-                <?php endforeach; endif; ?>
-                </tbody>
-            </table>
+        <div class="row g-3 g-md-4 mb-4">
+            <div class="col-6 col-lg-3"><div class="summary-card card-total"><div class="label">Total Requests</div><div class="number"><?= $total_requests ?></div></div></div>
+            <div class="col-6 col-lg-3"><div class="summary-card card-approved"><div class="label">Approved</div><div class="number"><?= $approved_requests ?></div></div></div>
+            <div class="col-6 col-lg-3"><div class="summary-card card-rejected"><div class="label">Rejected</div><div class="number"><?= $rejected_requests ?></div></div></div>
+            <div class="col-6 col-lg-3"><div class="summary-card card-pending"><div class="label">Pending</div><div class="number"><?= $pending_requests ?></div></div></div>
         </div>
-    </div>
+
+        <div class="section-card">
+            <div class="section-header"><h2>Requester Accounts</h2></div>
+            <div class="section-body">
+                <?php
+                $rq = $conn->prepare("SELECT id, first_name, middle_name, last_name, email, status, created_at FROM users WHERE created_by = ? AND role = 'requester'");
+                $rq->bind_param('i', $dean_id);
+                $rq->execute();
+                $requesters = $rq->get_result()->fetch_all(MYSQLI_ASSOC);
+                $rq->close();
+                ?>
+                <?php if (empty($requesters)): ?>
+                    <div class="empty-state"><i class="bi bi-people"></i><p>No requester accounts created yet</p></div>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table table-minimal"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>
+                            <?php foreach ($requesters as $r): ?>
+                            <tr>
+                                <td><strong>#<?= htmlspecialchars($r['id']) ?></strong></td>
+                                <td><?= htmlspecialchars($r['first_name'].' '.($r['middle_name'] ? $r['middle_name'].' ' : '').$r['last_name']) ?></td>
+                                <td><?= htmlspecialchars($r['email']) ?></td>
+                                <td><span class="badge-minimal <?= $r['status']==='active' ? 'badge-success' : 'badge-secondary' ?>"><i class="bi bi-<?= $r['status']==='active' ? 'check-circle' : 'x-circle'?>"></i> <?= htmlspecialchars(ucfirst($r['status'])) ?></span></td>
+                                <td><?= htmlspecialchars(date('M d, Y', strtotime($r['created_at']))) ?></td>
+                                <td><a class="btn-minimal btn-action-view" href="../dean/view_requester.php?id=<?= $r['id'] ?>"><i class="bi bi-eye"></i> View</a></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody></table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <div class="section-header"><h2>Recent Requests</h2></div>
+            <div class="section-body">
+                <?php if (empty($recent_requests)): ?>
+                    <div class="empty-state"><i class="bi bi-inbox"></i><p>No recent requests found</p></div>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table table-minimal"><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead><tbody>
+                            <?php foreach ($recent_requests as $req): ?>
+                            <tr>
+                                <td><strong>#<?= $req['id'] ?></strong></td>
+                                <td><?= htmlspecialchars($req['title']) ?></td>
+                                <td><?= htmlspecialchars(ucwords(str_replace('_',' ',$req['status']))) ?></td>
+                                <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($req['created_at']))) ?></td>
+                                <td><a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $req['id'] ?>"><i class="bi bi-eye"></i> View</a></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody></table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <div class="section-header"><h2>Create Requester Account</h2></div>
+            <div class="section-body" style="padding:1.5rem;">
+                <?php if ($has_requester): ?>
+                    <div class="empty-state"><i class="bi bi-info-circle"></i><p>Requester already exists for your office.</p></div>
+                <?php else: ?>
+                    <?php if (isset($success)): ?><div class="alert alert-success py-2 mb-3"><?= $success ?></div><?php endif; ?>
+                    <?php if (isset($error)): ?><div class="alert alert-danger py-2 mb-3"><?= $error ?></div><?php endif; ?>
+                    <form method="POST" class="row g-3">
+                        <div class="col-md-4"><label class="form-label">First Name</label><input type="text" name="first_name" class="form-control" required></div>
+                        <div class="col-md-4"><label class="form-label">Middle Name (Optional)</label><input type="text" name="middle_name" class="form-control"></div>
+                        <div class="col-md-4"><label class="form-label">Last Name</label><input type="text" name="last_name" class="form-control" required></div>
+                        <div class="col-md-6"><label class="form-label">Email</label><input type="email" name="email" class="form-control" required></div>
+                        <div class="col-md-6"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
+                        <div class="col-12"><button type="submit" class="btn btn-danger"><i class="bi bi-person-plus"></i> Create Requester</button></div>
+                    </form>
+                <?php endif; ?>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

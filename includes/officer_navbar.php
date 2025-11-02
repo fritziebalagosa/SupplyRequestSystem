@@ -42,7 +42,10 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 					<a class="nav-link d-flex align-items-center <?= ($current==='officer_requests.php' || $current==='view_request.php')? 'active':'' ?>" href="<?= $base ?>/officer_requests.php"><i class="bi bi-envelope me-2"></i>Requests</a>
 				</li>
 				<li class="nav-item px-3">
-					<a class="nav-link d-flex align-items-center <?= ($current==='records.php')? 'active':'' ?>" href="<?= $base ?>/manage_inventory.php"><i class="bi bi-journal-text me-2"></i>Inventory</a>
+					<a class="nav-link d-flex align-items-center <?= ($current==='records.php')? 'active':'' ?>" href="<?= $base ?>/records.php"><i class="bi bi-clipboard-check me-2"></i>Records</a>
+				</li>
+				<li class="nav-item px-3">
+					<a class="nav-link d-flex align-items-center <?= ($current==='manage_inventory.php')? 'active':'' ?>" href="<?= $base ?>/manage_inventory.php"><i class="bi bi-journal-text me-2"></i>Inventory</a>
 				</li>
 			</ul>
 		</div>
@@ -72,7 +75,7 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 					<strong><?= htmlspecialchars(trim($name ?: ($_SESSION['email'] ?? 'User'))) ?></strong>
 				</a>
 				<ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
-					<li><a class="dropdown-item" href="/SupplyRequestSystem/officer/dashboard.php"><i class="bi bi-gear me-2"></i>Profile Settings</a></li>
+					<li><a class="dropdown-item" href="/SupplyRequestSystem/officer/profile.php"><i class="bi bi-gear me-2"></i>Profile Settings</a></li>
 					<li><hr class="dropdown-divider"></li>
 					<li><a class="dropdown-item text-danger" href="/SupplyRequestSystem/auth/logout.php"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
 				</ul>
@@ -80,4 +83,3 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 		</div>
 	</div>
 </nav>
-

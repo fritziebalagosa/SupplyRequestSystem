@@ -1,11 +1,23 @@
 <?php
-include('../config/db.php');
 session_start();
+include('../config/db.php');
+include('../includes/csrf.php');
 
 // Handle Approve Request
 if (isset($_POST['approve_request'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $_SESSION['error'] = 'Security check failed. Please try again.';
+        header('Location: manage_requests.php');
+        exit();
+    }
     $request_id = $_POST['request_id'];
-    $release_date = $_POST['release_date'];
+    $release_date = $_POST['release_date'] ?? '';
+
+    if (empty($release_date)) {
+        $_SESSION['error'] = 'Please select a release date before approving.';
+        header('Location: manage_requests.php');
+        exit();
+    }
 
     // Update request status and release date
     $stmt = $conn->prepare("UPDATE requests SET status = 'approved', release_date = ? WHERE id = ?");
@@ -29,12 +41,26 @@ if (isset($_POST['approve_request'])) {
 
 // Handle Reject Request
 if (isset($_POST['reject_request'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $_SESSION['error'] = 'Security check failed. Please try again.';
+        header('Location: manage_requests.php');
+        exit();
+    }
     $request_id = $_POST['request_id'];
     $remarks = $_POST['remarks'];
 
-    $stmt = $conn->prepare("UPDATE requests SET status = 'rejected', remarks = ? WHERE id = ?");
-    $stmt->bind_param("si", $remarks, $request_id);
+    // Update status only (no remarks column) and log reason in request_actions
+    $stmt = $conn->prepare("UPDATE requests SET status = 'rejected' WHERE id = ?");
+    $stmt->bind_param("i", $request_id);
     $stmt->execute();
+
+    // Log the action with admin role
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    $admin_id = $_SESSION['user_id'] ?? null;
+    $role = 'supply_head';
+    $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'rejected', ?, NOW())");
+    $ia->bind_param("iiss", $request_id, $admin_id, $role, $remarks);
+    $ia->execute();
 
     $_SESSION['error'] = "Request #$request_id has been rejected.";
     header("Location: manage_requests.php");
@@ -47,7 +73,7 @@ $query = "
     FROM requests r
     LEFT JOIN users u ON r.requester_id = u.id
     LEFT JOIN college_offices c ON u.college_office_id = c.id
-    WHERE r.status IN ('pending', 'for_approval', 'forwarded')
+    WHERE r.status IN ('pending', 'for_approval', 'for_final_approval', 'forwarded')
     ORDER BY r.created_at DESC
 ";
 $result = $conn->query($query) or die('Query failed: ' . $conn->error);
@@ -482,110 +508,14 @@ $result = $conn->query($query) or die('Query failed: ' . $conn->error);
                                     </span>
                                 </td>
                                 <td>
-                                    <?php echo $row['release_date'] ? date("M d, Y", strtotime($row['release_date'])) : '—'; ?>
+                                    <?php echo (isset($row['release_date']) && $row['release_date']) ? date("M d, Y", strtotime($row['release_date'])) : '—'; ?>
                                 </td>
                                 <td>
-                                    <button class="btn-minimal btn-sm-minimal btn-action-view" data-bs-toggle="modal" data-bs-target="#viewRequest<?php echo $row['id']; ?>">
+                                    <a class="btn-minimal btn-sm-minimal btn-action-view" href="view_request.php?id=<?php echo $row['id']; ?>">
                                         <i class="bi bi-eye"></i> View Details
-                                    </button>
+                                    </a>
                                 </td>
                             </tr>
-
-                            <!-- View Request Modal -->
-                            <div class="modal fade" id="viewRequest<?php echo $row['id']; ?>" tabindex="-1">
-                                <div class="modal-dialog modal-lg">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Request Details - #<?php echo $row['id']; ?></h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body">
-                                            <!-- Requester Info -->
-                                            <div class="mb-4">
-                                                <div class="row g-3">
-                                                    <div class="col-md-6">
-                                                        <label class="form-label-minimal">Requester</label>
-                                                        <input type="text" class="form-control-minimal" value="<?php echo htmlspecialchars($row['first_name'] . ' ' . ($row['middle_name'] ? $row['middle_name'][0] . '. ' : '') . $row['last_name']); ?>" disabled>
-                                                    </div>
-                                                    <div class="col-md-6">
-                                                        <label class="form-label-minimal">College/Office</label>
-                                                        <input type="text" class="form-control-minimal" value="<?php echo htmlspecialchars($row['college_office']); ?>" disabled>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <!-- Requested Items -->
-                                            <h6 class="section-label">Requested Items</h6>
-                                            <div class="items-table">
-                                                <table>
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Item Name</th>
-                                                            <th style="text-align: center;">Quantity</th>
-                                                            <th style="text-align: center;">Unit</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <?php
-                                                        $items_q = $conn->prepare("
-                                                            SELECT i.item_name, i.unit, ri.quantity
-                                                            FROM request_items ri
-                                                            JOIN items i ON ri.item_id = i.id
-                                                            WHERE ri.request_id = ?
-                                                        ");
-                                                        $items_q->bind_param("i", $row['id']);
-                                                        $items_q->execute();
-                                                        $items_result = $items_q->get_result();
-                                                        while ($item = $items_result->fetch_assoc()):
-                                                        ?>
-                                                            <tr>
-                                                                <td><?php echo htmlspecialchars($item['item_name']); ?></td>
-                                                                <td style="text-align: center;"><strong><?php echo $item['quantity']; ?></strong></td>
-                                                                <td style="text-align: center;"><?php echo htmlspecialchars($item['unit']); ?></td>
-                                                            </tr>
-                                                        <?php endwhile; ?>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            <!-- Action Form -->
-                                            <form method="POST">
-                                                <input type="hidden" name="request_id" value="<?php echo $row['id']; ?>">
-
-                                                <div class="mb-3">
-                                                    <label class="form-label-minimal">Assign Release Date</label>
-                                                    <input type="date" class="form-control form-control-minimal" name="release_date" required>
-                                                </div>
-
-                                                <div class="action-buttons-modal">
-                                                    <button type="submit" name="approve_request" class="btn-minimal btn-success-minimal">
-                                                        <i class="bi bi-check-circle"></i> Approve Request
-                                                    </button>
-                                                    <button type="button" class="btn-minimal btn-danger-minimal" data-bs-toggle="collapse" data-bs-target="#reject<?php echo $row['id']; ?>">
-                                                        <i class="bi bi-x-circle"></i> Reject Request
-                                                    </button>
-                                                </div>
-
-                                                <!-- Reject Form -->
-                                                <div id="reject<?php echo $row['id']; ?>" class="collapse">
-                                                    <div class="reject-section">
-                                                        <div class="mb-3">
-                                                            <label class="form-label-minimal">Reason for Rejection</label>
-                                                            <textarea name="remarks" class="form-control form-control-minimal" rows="3" placeholder="Enter the reason for rejecting this request..." required></textarea>
-                                                        </div>
-                                                        <button type="submit" name="reject_request" class="btn-minimal btn-danger-minimal">
-                                                            <i class="bi bi-exclamation-triangle"></i> Confirm Rejection
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </form>
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn-minimal btn-secondary-minimal" data-bs-dismiss="modal">Close</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         <?php endwhile; ?>
                     <?php else: ?>
                         <tr>

@@ -47,6 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 				$pup->close();
 			}
 
+			// Update session so navbar reflects changes
+			$_SESSION['first_name'] = $first_name;
+			$_SESSION['last_name'] = $last_name;
+			$_SESSION['email'] = $email;
 			$msg = 'Profile updated successfully.';
 			$stmt = $conn->prepare("SELECT id, first_name, middle_name, last_name, email FROM users WHERE id = ?");
 			$stmt->bind_param('i', $user_id);
@@ -64,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	<meta name="viewport" content="width=device-width,initial-scale=1">
 	<title>My Profile - Admin</title>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 	<style>
 		body{background:#fafafa;color:#212121;font-family:Inter,Segoe UI,Roboto,system-ui}
 		.container-main{max-width:900px;margin:2rem auto;padding:1rem}

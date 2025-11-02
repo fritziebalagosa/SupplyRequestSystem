@@ -2,6 +2,20 @@
 <?php
 // Get current page filename
 $current_page = basename($_SERVER['PHP_SELF']);
+if (!isset($conn)) { @include('../config/db.php'); }
+$alert_count = 0; $alerts = [];
+if (isset($conn) && $conn) {
+    $q = $conn->query("SELECT l.id, l.item_id, i.item_name, i.stock_qty, i.reorder_level, l.created_at
+                       FROM low_stock_alerts l
+                       JOIN items i ON i.id = l.item_id
+                       WHERE l.status = 'open'
+                       ORDER BY l.created_at DESC
+                       LIMIT 10");
+    if ($q) {
+        while ($r = $q->fetch_assoc()) { $alerts[] = $r; }
+        $alert_count = count($alerts);
+    }
+}
 ?>
 
 <style>
@@ -248,6 +262,11 @@ $current_page = basename($_SERVER['PHP_SELF']);
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link <?php echo ($current_page == 'records.php') ? 'active' : ''; ?>" href="records.php">
+            <i class="bi bi-envelope-check"></i> Records
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link <?php echo ($current_page == 'manage_users.php') ? 'active' : ''; ?>" href="manage_users.php">
             <i class="bi bi-people"></i> Users
           </a>
@@ -260,21 +279,22 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <li class="nav-item dropdown me-lg-2">
           <a class="nav-link notification-link" href="#" id="notifDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="bi bi-bell"></i>
-            <span class="notification-badge">3</span>
+            <?php if ($alert_count > 0): ?><span class="notification-badge"><?= $alert_count ?></span><?php endif; ?>
           </a>
           <ul class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="notifDropdown">
-            <li><h6 class="dropdown-header">Notifications</h6></li>
-            <li><a class="dropdown-item small" href="#">
-              <i class="bi bi-envelope-plus"></i> New request submitted
-            </a></li>
-            <li><a class="dropdown-item small" href="#">
-              <i class="bi bi-exclamation-triangle"></i> Item stock low
-            </a></li>
-            <li><a class="dropdown-item small" href="#">
-              <i class="bi bi-check-circle"></i> Request #112 approved
-            </a></li>
+            <li><h6 class="dropdown-header">Low Stock Alerts</h6></li>
+            <?php if ($alert_count === 0): ?>
+              <li><span class="dropdown-item small text-muted">No low stock alerts</span></li>
+            <?php else: foreach ($alerts as $al): ?>
+              <li>
+                <a class="dropdown-item small" href="../admin/manage_inventory.php">
+                  <i class="bi bi-exclamation-triangle"></i>
+                  <?= htmlspecialchars($al['item_name']) ?> low (<?= (int)$al['stock_qty'] ?>/<?= (int)$al['reorder_level'] ?>)
+                </a>
+              </li>
+            <?php endforeach; endif; ?>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item text-center small text-primary" href="#">View all notifications</a></li>
+            <li><a class="dropdown-item text-center small text-primary" href="../admin/manage_inventory.php">Open Inventory</a></li>
           </ul>
         </li>
 

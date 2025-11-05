@@ -29,18 +29,16 @@ if (!$college_office_id) {
 
 // ✅ Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // 🧠 FIX: Handle array or single inputs safely
-    $item_name = isset($_POST['item_name']) 
-        ? (is_array($_POST['item_name']) ? trim($_POST['item_name'][0]) : trim($_POST['item_name'])) 
-        : '';
-    $stock_number = isset($_POST['stock_number']) 
-        ? (is_array($_POST['stock_number']) ? trim($_POST['stock_number'][0]) : trim($_POST['stock_number'])) 
-        : '';
-    $unit = isset($_POST['unit']) 
-        ? (is_array($_POST['unit']) ? trim($_POST['unit'][0]) : trim($_POST['unit'])) 
-        : '';
-    $quantity = intval($_POST['quantity'] ?? 0);
-    $priority = $_POST['priority'] ?? 'normal';
+    $item_raw = $_POST['item_name'] ?? [];
+    $unit_raw = $_POST['unit'] ?? [];
+    $qty_raw = $_POST['quantity'] ?? [];
+    $prio_raw = $_POST['priority'] ?? [];
+
+    $item_names = is_array($item_raw) ? array_map('trim', $item_raw) : [trim((string)$item_raw)];
+    $units = is_array($unit_raw) ? $unit_raw : [(string)$unit_raw];
+    $quantities = is_array($qty_raw) ? $qty_raw : [(string)$qty_raw];
+    $priorities = is_array($prio_raw) ? $prio_raw : [(string)$prio_raw];
+
     $description = trim($_POST['description'] ?? '');
     $created_at = date('Y-m-d H:i:s');
 
@@ -69,62 +67,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $creator_id = $roles['creator_id'] ?? 0;
     $roles_query->close();
 
-    // Determine initial status based on both roles
+    // Determine initial status
     if ($requester_role === 'requester') {
         if ($creator_role === 'dean') {
             $status = 'pending_dean';
         } else if ($creator_role === 'head') {
             $status = 'pending_head';
         } else {
-            // Default for office requesters or unknown creator
             $status = 'pending_head';
         }
     } else {
-        // For non-requester roles (shouldn't happen, but just in case)
         $status = 'pending_head';
     }
 
-    // Debug logging
-    error_log("Request creation - Requester ID: $requester_id, Requester Role: $requester_role, Creator ID: $creator_id, Creator Role: $creator_role");
-    error_log("Setting initial status to: $status");
-
-    // ✅ Generate a formatted request ID (YYMMDD + 4 digit number)
-    $formatted_request_id = date('ymd') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
-
-    // ✅ Insert request with the formatted request_id
-    $stmt = $conn->prepare("INSERT INTO requests (request_id, requester_id, college_office_id, description, attachment, status, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)");
-    
-    $stmt->bind_param("siissss", $formatted_request_id, $requester_id, $college_office_id, $description, $attachment, $status, $created_at);
-
-    if (!$stmt->execute()) {
-        die("<div style='padding:20px;background:#ffe0e0;color:#a33;border-radius:6px;'>Database error: " . htmlspecialchars($stmt->error) . "</div>");
+    // Basic validation
+    $rows = [];
+    for ($i = 0; $i < count($item_names); $i++) {
+        $nm = trim($item_names[$i] ?? '');
+        $qt = (int)($quantities[$i] ?? 0);
+        $un = trim($units[$i] ?? '');
+        $pr = trim($priorities[$i] ?? 'normal');
+        if ($nm !== '' && $qt > 0) {
+            $rows[] = ['name'=>$nm,'qty'=>$qt,'unit'=>$un,'priority'=>$pr];
+        }
     }
+    if (empty($rows)) {
+        $error = "Please add at least one item with a quantity greater than zero.";
+    } else {
+        // ✅ Generate a formatted request ID
+        $formatted_request_id = date('ymd') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
 
-    $request_id = $stmt->insert_id; // This is the auto-increment ID we'll use for request_items
-    $stmt->close();
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("INSERT INTO requests (request_id, requester_id, college_office_id, description, attachment, status, created_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("siissss", $formatted_request_id, $requester_id, $college_office_id, $description, $attachment, $status, $created_at);
+            if (!$stmt->execute()) { throw new Exception($stmt->error); }
+            $request_id = $stmt->insert_id;
+            $stmt->close();
 
-    // ✅ Get item ID from items table (create link)
-    $item_stmt = $conn->prepare("SELECT id FROM items WHERE item_name = ? LIMIT 1");
-    $item_stmt->bind_param("s", $item_name);
-    $item_stmt->execute();
-    $item_result = $item_stmt->get_result();
-    $item = $item_result->fetch_assoc();
-    $item_id = $item['id'] ?? null;
-    $item_stmt->close();
+            $find_item = $conn->prepare("SELECT id FROM items WHERE item_name = ? LIMIT 1");
+            $ins_item = $conn->prepare("INSERT INTO request_items (request_id, item_id, quantity, unit, priority) VALUES (?, ?, ?, ?, ?)");
+            foreach ($rows as $r) {
+                $find_item->bind_param('s', $r['name']);
+                $find_item->execute();
+                $res = $find_item->get_result()->fetch_assoc();
+                $item_id = $res['id'] ?? null;
+                if (!$item_id) { throw new Exception('Item not found: '.htmlspecialchars($r['name'])); }
+                $ins_item->bind_param('iiiss', $request_id, $item_id, $r['qty'], $r['unit'], $r['priority']);
+                if (!$ins_item->execute()) { throw new Exception($ins_item->error); }
+            }
+            $find_item->close();
+            $ins_item->close();
 
-    if (!$item_id) {
-        die("<div style='padding:20px;background:#ffe0e0;color:#a33;border-radius:6px;'>❌ Item not found in database. Please select an existing item.</div>");
+            $conn->commit();
+            $success = "Request submitted successfully! Your Request ID is: $formatted_request_id";
+        } catch (Exception $e) {
+            $conn->rollback();
+            $error = "Database error: ".htmlspecialchars($e->getMessage());
+        }
     }
-
-    // ✅ Insert item details into request_items
-    $stmt = $conn->prepare("INSERT INTO request_items (request_id, item_id, quantity, unit, priority)
-                            VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("iiiss", $request_id, $item_id, $quantity, $unit, $priority);
-    $stmt->execute();
-    $stmt->close();
-
-    $success = "Request submitted successfully! Your Request ID is: $formatted_request_id";
 }
 ?>
 
@@ -179,7 +181,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             text-align: center;
         }
 
-        /* Form Card */
         .form-card {
             background: white;
             border-radius: 12px;
@@ -198,7 +199,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-bottom: 0.5rem;
         }
 
-        /* Guide Box */
         .guide-box {
             background-color: #e7f3ff;
             border-left: 4px solid var(--red-primary);
@@ -219,7 +219,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             line-height: 1.6;
         }
 
-        /* Alert */
         .alert-minimal {
             border-radius: 8px;
             padding: 1rem 1.25rem;
@@ -236,11 +235,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-color: #c3e6cb;
         }
 
+        .alert-danger {
+            background-color: var(--red-light);
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
         .alert-minimal i {
             font-size: 1.25rem;
         }
 
-        /* Form Elements */
         .form-label-minimal {
             font-size: 0.875rem;
             color: var(--gray-700);
@@ -274,7 +278,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             min-height: 100px;
         }
 
-        /* Suggestions */
         .suggestion-box {
             position: absolute;
             width: 100%;
@@ -304,9 +307,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background-color: var(--gray-50);
         }
 
-        /* Buttons */
         .btn-minimal {
-            padding: 0.625rem 1.5rem;
+            padding: 0.625rem 1.25rem;
             border-radius: 8px;
             font-weight: 500;
             font-size: 0.9375rem;
@@ -315,6 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
+            cursor: pointer;
         }
 
         .btn-primary-minimal {
@@ -327,7 +330,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transform: translateY(-1px);
         }
 
-        /* Step visibility */
+        .btn-sm-minimal {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.875rem;
+        }
+
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .items-table thead th {
+            background: var(--gray-50);
+            color: var(--gray-700);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--gray-200);
+            text-align: left;
+        }
+
+        .items-table tbody td {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--gray-200);
+            font-size: 0.9375rem;
+        }
+
+        .items-table tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+
         .step2 {
             animation: fadeIn 0.3s ease-in;
         }
@@ -337,7 +372,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Form Actions */
         .form-actions {
             margin-top: 2rem;
             padding-top: 1.5rem;
@@ -345,7 +379,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             text-align: right;
         }
 
-        /* Responsive */
         @media (max-width: 768px) {
             .container-main {
                 padding: 1.5rem 1rem;
@@ -368,6 +401,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         $(document).ready(function() {
+            let items = [];
+
+            function resetItemInputs() {
+                $('#item_name').val('');
+                $('#stock_number').val('');
+                $('#unit').val('');
+                $('#quantity').val('');
+                $('#priority').val('normal');
+                $('.step2').hide();
+                $('#suggestions').empty();
+            }
+
+            function updateItemsTable() {
+                const tbody = $('#itemsTable tbody');
+                tbody.empty();
+                items.forEach((item, idx) => {
+                    tbody.append(`
+                        <tr>
+                            <td>${$('<div>').text(item.name).html()}</td>
+                            <td>${$('<div>').text(item.stock).html()}</td>
+                            <td>${$('<div>').text(item.unit).html()}</td>
+                            <td><strong>${item.qty}</strong></td>
+                            <td>${$('<div>').text(item.priority).html()}</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-danger remove-item" data-idx="${idx}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                });
+                if (items.length > 0) {
+                    $('#itemsListRow').show();
+                    $('#finalStep').show();
+                    $('#submitRow').show();
+                } else {
+                    $('#itemsListRow').hide();
+                    $('#finalStep').hide();
+                    $('#submitRow').hide();
+                }
+            }
+
+            function updateHiddenFields() {
+                const hidden = $('#hiddenItems');
+                hidden.empty();
+                items.forEach((item) => {
+                    hidden.append(`<input type="hidden" name="item_name[]" value="${$('<div>').text(item.name).html()}">`);
+                    hidden.append(`<input type="hidden" name="unit[]" value="${$('<div>').text(item.unit).html()}">`);
+                    hidden.append(`<input type="hidden" name="quantity[]" value="${item.qty}">`);
+                    hidden.append(`<input type="hidden" name="priority[]" value="${item.priority}">`);
+                });
+            }
+
             $('#item_name').on('input', function() {
                 const query = $(this).val();
                 if (query.length < 2) {
@@ -391,6 +477,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $('#suggestions').empty();
                 $('.step2').fadeIn();
             });
+
+            $(document).on('click', '#addItemBtn', function() {
+                const name = $('#item_name').val().trim();
+                const stock = $('#stock_number').val().trim();
+                const unit = $('#unit').val().trim();
+                const qty = parseInt($('#quantity').val(), 10);
+                const priority = $('#priority').val();
+                
+                if (!name || !unit || !qty || qty < 1) {
+                    alert('Please fill in all item fields and ensure quantity is greater than 0.');
+                    return;
+                }
+                
+                items.push({ name, stock, unit, qty, priority });
+                updateItemsTable();
+                updateHiddenFields();
+                resetItemInputs();
+            });
+
+            $(document).on('click', '.remove-item', function() {
+                const idx = $(this).data('idx');
+                items.splice(idx, 1);
+                updateItemsTable();
+                updateHiddenFields();
+            });
+
+            $('#requestForm').on('submit', function(e) {
+                if (items.length === 0) {
+                    alert('Please add at least one item to your request.');
+                    e.preventDefault();
+                }
+            });
         });
     </script>
 </head>
@@ -409,9 +527,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="guide-box">
                 <strong><i class="bi bi-lightbulb"></i> Quick Guide</strong>
                 <p>
-                    <strong>Step 1:</strong> Start typing the item name to search available supplies.<br>
-                    <strong>Step 2:</strong> Select from suggestions - stock number and unit will auto-fill.<br>
-                    <strong>Step 3:</strong> Enter quantity, priority, and attach your request slip before submitting.
+                    <strong>Step 1:</strong> Search for an item by typing its name.<br>
+                    <strong>Step 2:</strong> Select from suggestions and fill in quantity and priority.<br>
+                    <strong>Step 3:</strong> Click "Add Item" to add it to your request (you can add multiple items).<br>
+                    <strong>Step 4:</strong> Fill in the purpose and submit your request.
                 </p>
             </div>
 
@@ -422,58 +541,155 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             <?php endif; ?>
 
-            <form method="POST" enctype="multipart/form-data" autocomplete="off">
+            <?php if (isset($error)): ?>
+                <div class="alert-minimal alert-danger">
+                    <i class="bi bi-exclamation-circle-fill"></i>
+                    <span><?= htmlspecialchars($error) ?></span>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" enctype="multipart/form-data" autocomplete="off" id="requestForm">
                 <div class="row g-3">
                     <div class="col-md-6 position-relative">
                         <label class="form-label-minimal">Item Name <span style="color: var(--red-primary);">*</span></label>
-                        <input type="text" id="item_name" name="item_name" class="form-control form-control-minimal" placeholder="Type item name (e.g., bond paper)" required>
+                        <input type="text" id="item_name" class="form-control form-control-minimal" placeholder="Type item name (e.g., bond paper)">
                         <div id="suggestions" class="list-group suggestion-box"></div>
                     </div>
-
                     <div class="col-md-3">
                         <label class="form-label-minimal">Stock Number</label>
-                        <input type="text" id="stock_number" name="stock_number" class="form-control form-control-minimal" readonly>
+                        <input type="text" id="stock_number" class="form-control form-control-minimal" readonly>
                     </div>
-
                     <div class="col-md-3">
                         <label class="form-label-minimal">Unit</label>
-                        <input type="text" id="unit" name="unit" class="form-control form-control-minimal" readonly>
+                        <input type="text" id="unit" class="form-control form-control-minimal" readonly>
                     </div>
+                </div>
 
-                    <div class="col-md-4 step2" style="display:none;">
+                <div class="row g-3 mt-2 step2" style="display:none;">
+                    <div class="col-md-4">
                         <label class="form-label-minimal">Quantity <span style="color: var(--red-primary);">*</span></label>
-                        <input type="number" name="quantity" class="form-control form-control-minimal" min="1" placeholder="0" required>
+                        <input type="number" id="quantity" class="form-control form-control-minimal" min="1" placeholder="0">
                     </div>
-
-                    <div class="col-md-4 step2" style="display:none;">
+                    <div class="col-md-4">
                         <label class="form-label-minimal">Priority Level <span style="color: var(--red-primary);">*</span></label>
-                        <select name="priority" class="form-select form-select-minimal" required>
+                        <select id="priority" class="form-select form-select-minimal">
                             <option value="normal">Normal</option>
                             <option value="high">High</option>
                             <option value="urgent">Urgent</option>
                         </select>
                     </div>
-
-                    <div class="col-md-4 step2" style="display:none;">
-                        <label class="form-label-minimal">Attach Request Slip</label>
-                        <input type="file" name="attachment" class="form-control form-control-minimal" accept=".pdf,.jpg,.jpeg,.png">
-                    </div>
-
-                    <div class="col-12 step2" style="display:none;">
-                        <label class="form-label-minimal">Purpose / Description <span style="color: var(--red-primary);">*</span></label>
-                        <textarea name="description" class="form-control form-control-minimal" rows="4" placeholder="State the purpose of this supply request" required></textarea>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button type="button" class="btn-minimal btn-primary-minimal w-100" id="addItemBtn">
+                            <i class="bi bi-plus-circle"></i> Add Item
+                        </button>
                     </div>
                 </div>
 
-                <div class="form-actions step2" style="display:none;">
+                <div class="row g-3 mt-3" id="itemsListRow" style="display:none;">
+                    <div class="col-12">
+                        <h5 class="form-label-minimal" style="font-size: 1rem; margin-bottom: 0.5rem;">Items in Request:</h5>
+                        <table class="items-table" id="itemsTable">
+                            <thead>
+                                <tr>
+                                    <th>Item Name</th>
+                                    <th>Stock #</th>
+                                    <th>Unit</th>
+                                    <th>Quantity</th>
+                                    <th>Priority</th>
+                                    <th>Remove</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-3" id="finalStep" style="display:none;">
+                    <div class="col-md-6">
+                        <label class="form-label-minimal">Purpose / Description <span style="color: var(--red-primary);">*</span></label>
+                        <textarea name="description" class="form-control form-control-minimal" rows="4" placeholder="State the purpose of this supply request" required></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-minimal">Attach Request Slip</label>
+                        <input type="file" name="attachment" class="form-control form-control-minimal" accept=".pdf,.jpg,.jpeg,.png">
+                    </div>
+                </div>
+
+                <div class="form-actions" id="submitRow" style="display:none;">
                     <button type="submit" class="btn-minimal btn-primary-minimal">
                         <i class="bi bi-send"></i> Submit Request
                     </button>
                 </div>
+
+                <div id="hiddenItems"></div>
             </form>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // ...existing code...
+    let lastCheckedStock = null;
+    let lastCheckedReorder = null;
+
+    // Show warning message
+    function showRestockWarning(msg) {
+        let html = '<i class="bi bi-exclamation-triangle"></i> ' + msg;
+        
+        if ($('#restock-warning').length === 0) {
+            $('<div id="restock-warning" class="alert alert-warning mt-2">' + html + '</div>')
+                .insertBefore('#addItemBtn');
+        } else {
+            $('#restock-warning').html(html).show();
+        }
+    }
+
+    function hideRestockWarning() {
+        $('#restock-warning').remove();
+    }
+
+    // Check stock and reorder level when quantity changes
+    $('#quantity').on('input', function() {
+        const itemName = $('#item_name').val().trim();
+        const qty = parseInt($(this).val(), 10);
+        if (!itemName || !qty || qty < 1) {
+            hideRestockWarning();
+            return;
+        }
+        $.get('get_item_stock.php', { item_name: itemName }, function(data) {
+            if (data.success) {
+                lastCheckedStock = data.stock_qty;
+                lastCheckedReorder = data.reorder_level;
+                const stockAfter = data.stock_qty - qty;
+                if (stockAfter <= data.reorder_level) {
+                    showRestockWarning('Warning: This request will bring the stock to or below the restock level (' + data.reorder_level + ').');
+                } else {
+                    hideRestockWarning();
+                }
+            } else {
+                hideRestockWarning();
+            }
+        }, 'json');
+    });
+
+    // Also check when item name changes (reset warning)
+    $('#item_name').on('input', function() {
+        hideRestockWarning();
+    });
+
+    // Check again before adding item
+    $(document).on('click', '#addItemBtn', function(e) {
+        const name = $('#item_name').val().trim();
+        const qty = parseInt($('#quantity').val(), 10);
+        if (lastCheckedStock !== null && lastCheckedReorder !== null && name && qty) {
+            const stockAfter = lastCheckedStock - qty;
+            if (stockAfter <= lastCheckedReorder) {
+                showRestockWarning('Warning: This request will bring the stock to or below the restock level (' + lastCheckedReorder + ').');
+            } else {
+                hideRestockWarning();
+            }
+        }
+    });
+    </script>
 </body>
 </html>

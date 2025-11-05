@@ -36,7 +36,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: ../head/dashboard.php');
                     exit();
                 case 'supply_officer':
-                case 'officer':
                     header('Location: ../officer/dashboard.php');
                     exit();
                 case 'admin':

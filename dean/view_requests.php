@@ -10,49 +10,6 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['dean','
 
 $user_id = $_SESSION['user_id'];
 
-// Ensure receipts table and handle receipt submission
-$conn->query("CREATE TABLE IF NOT EXISTS request_receipts (id INT AUTO_INCREMENT PRIMARY KEY, request_id INT NOT NULL, receiver_id INT NOT NULL, photo_path VARCHAR(255) NOT NULL, status VARCHAR(20) DEFAULT 'submitted', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, confirmed_at DATETIME NULL, confirmed_by INT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_receipt'])) {
-    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) { die('Security check failed'); }
-    $rid = intval($_POST['request_id'] ?? 0);
-    if ($rid !== intval($_GET['id'] ?? 0)) { die('Mismatched request id'); }
-    if (!isset($_FILES['receipt_photo']) || $_FILES['receipt_photo']['error'] !== UPLOAD_ERR_OK) {
-        $_SESSION['flash_error'] = 'Please attach a receipt photo.';
-        header('Location: view_requests.php?id=' . $rid);
-        exit;
-    }
-    $f = $_FILES['receipt_photo'];
-    $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-    $allowed = ['jpg','jpeg','png','gif','webp'];
-    if (!in_array($ext, $allowed)) {
-        $_SESSION['flash_error'] = 'Invalid file type. Allowed: jpg, jpeg, png, gif, webp';
-        header('Location: view_requests.php?id=' . $rid);
-        exit;
-    }
-    $destDir = realpath(__DIR__ . '/../') . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'receipts';
-    if (!is_dir($destDir)) { @mkdir($destDir, 0777, true); }
-    $fname = 'receipt_' . $rid . '_' . time() . '.' . $ext;
-    $dest = $destDir . DIRECTORY_SEPARATOR . $fname;
-    if (!move_uploaded_file($f['tmp_name'], $dest)) {
-        $_SESSION['flash_error'] = 'Failed to save uploaded file.';
-        header('Location: view_requests.php?id=' . $rid);
-        exit;
-    }
-    $relPath = '../uploads/receipts/' . $fname;
-    $ins = $conn->prepare("INSERT INTO request_receipts (request_id, receiver_id, photo_path, status) VALUES (?, ?, ?, 'submitted')");
-    $ins->bind_param('iis', $rid, $user_id, $relPath);
-    $ins->execute();
-    $ins->close();
-    $role = $_SESSION['role'];
-    $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'receipt_submitted', 'Receipt photo uploaded', NOW())");
-    $ia->bind_param('iis', $rid, $user_id, $role);
-    $ia->execute();
-    $ia->close();
-    $_SESSION['flash_success'] = 'Receipt submitted to admin for confirmation.';
-    header('Location: view_requests.php?id=' . $rid);
-    exit;
-}
-
 // get college_office_id
 if (isset($_SESSION['college_office_id'])) {
     $college_office_id = $_SESSION['college_office_id'];
@@ -93,632 +50,115 @@ $hist_stmt->bind_param("i", $id);
 $hist_stmt->execute();
 $history = $hist_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $hist_stmt->close();
-
 $csrf_token = generate_csrf_token();
-
-// Determine badge class
-$status = strtolower($request['status']);
-$badge_class = 'badge-pending';
-
-if (strpos($status, 'approved') !== false) {
-    $badge_class = 'badge-approved';
-} elseif (strpos($status, 'rejected') !== false) {
-    $badge_class = 'badge-rejected';
-} elseif (strpos($status, 'completed') !== false) {
-    $badge_class = 'badge-completed';
-} elseif (strpos($status, 'returned') !== false) {
-    $badge_class = 'badge-returned';
-} elseif (strpos($status, 'forwarded') !== false) {
-    $badge_class = 'badge-forwarded';
-}
-
-$status_text = ucwords(str_replace('_', ' ', $request['status']));
-
-$can_act = false;
-$role = $_SESSION['role'] ?? '';
-if ($role === 'dean' && $request['status'] === 'pending_dean') $can_act = true;
-if ($role === 'head' && $request['status'] === 'pending_head') $can_act = true;
-
-// release schedule
-$rel_date = null;
-$rs = $conn->prepare("SELECT release_date FROM release_schedule WHERE request_id=? LIMIT 1");
-$rs->bind_param('i', $id);
-$rs->execute();
-$rres = $rs->get_result()->fetch_assoc();
-if ($rres) { $rel_date = $rres['release_date']; }
-$rs->close();
-
-// Fallback: infer from action log if schedule row missing
-if (!$rel_date) {
-    $as = $conn->prepare("SELECT comment FROM request_actions WHERE request_id=? AND action_type='approved' ORDER BY created_at DESC LIMIT 1");
-    $as->bind_param('i', $id);
-    $as->execute();
-    $ar = $as->get_result()->fetch_assoc();
-    $as->close();
-    if ($ar && !empty($ar['comment'])) {
-        if (preg_match('/Release date:\s*(\d{4}-\d{2}-\d{2})/i', $ar['comment'], $m)) {
-            $rel_date = $m[1];
-        }
-    }
-}
-
-// latest receipt
-$rec_stmt = $conn->prepare("SELECT * FROM request_receipts WHERE request_id=? ORDER BY created_at DESC LIMIT 1");
-$rec_stmt->bind_param('i', $id);
-$rec_stmt->execute();
-$latest_receipt = $rec_stmt->get_result()->fetch_assoc();
-$rec_stmt->close();
-
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>View Request - WMSU OSRS</title>
+    <title>View Request</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        :root {
-            --red-primary: #dc3545;
-            --red-dark: #c82333;
-            --red-light: #f8d7da;
-            --gray-50: #fafafa;
-            --gray-100: #f5f5f5;
-            --gray-200: #eeeeee;
-            --gray-300: #e0e0e0;
-            --gray-700: #616161;
-            --gray-900: #212121;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
-            background-color: var(--gray-50);
-            color: var(--gray-900);
-            line-height: 1.6;
-        }
-
-        .container-main {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-        }
-
-        /* Back Button */
-        .back-button {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background-color: white;
-            color: var(--gray-700);
-            border: 1px solid var(--gray-300);
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 0.9375rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            margin-bottom: 1.5rem;
-        }
-
-        .back-button:hover {
-            background-color: var(--gray-50);
-            border-color: var(--gray-700);
-            color: var(--gray-900);
-        }
-
-        /* Page Header */
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-        }
-
-        .page-title {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: var(--gray-900);
-            letter-spacing: -0.5px;
-            margin: 0;
-        }
-
-        .request-id {
-            font-family: 'Courier New', monospace;
-            color: var(--red-primary);
-        }
-
-        /* Cards */
-        .info-card {
-            background: white;
-            border-radius: 12px;
-            border: 1px solid var(--gray-200);
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .info-card h5 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--gray-900);
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .info-row {
-            padding: 0.75rem 0;
-            border-bottom: 1px solid var(--gray-100);
-        }
-
-        .info-row:last-child {
-            border-bottom: none;
-        }
-
-        .info-label {
-            font-weight: 600;
-            color: var(--gray-700);
-            font-size: 0.875rem;
-            margin-bottom: 0.25rem;
-        }
-
-        .info-value {
-            color: var(--gray-900);
-            font-size: 0.9375rem;
-        }
-
-        /* Badges */
-        .badge-minimal {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.35rem 0.75rem;
-            border-radius: 6px;
-            font-size: 0.8125rem;
-            font-weight: 500;
-            border: 1px solid;
-        }
-
-        .badge-pending { background-color: #fff3cd; color: #856404; border-color: #ffeaa7; }
-        .badge-approved { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
-        .badge-rejected { background-color: var(--red-light); color: #721c24; border-color: #f5c6cb; }
-        .badge-completed { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-        .badge-returned { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-        .badge-forwarded { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-
-        /* Items Table */
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .items-table thead th {
-            background: var(--gray-50);
-            color: var(--gray-700);
-            font-weight: 600;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--gray-200);
-            text-align: left;
-        }
-
-        .items-table tbody td {
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--gray-200);
-            font-size: 0.9375rem;
-        }
-
-        .items-table tbody tr:hover {
-            background-color: var(--gray-50);
-        }
-
-        /* Form Elements */
-        .form-label-minimal {
-            font-size: 0.875rem;
-            color: var(--gray-700);
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-        }
-
-        .form-control-minimal {
-            border: 1px solid var(--gray-300);
-            border-radius: 8px;
-            padding: 0.625rem 0.875rem;
-            font-size: 0.9375rem;
-            transition: all 0.2s ease;
-        }
-
-        .form-control-minimal:focus {
-            border-color: var(--red-primary);
-            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.1);
-            outline: none;
-        }
-
-        textarea.form-control-minimal {
-            resize: vertical;
-            min-height: 80px;
-        }
-
-        /* Buttons */
-        .btn-minimal {
-            padding: 0.625rem 1.25rem;
-            border-radius: 8px;
-            font-weight: 500;
-            font-size: 0.9375rem;
-            border: none;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .btn-success-minimal {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .btn-success-minimal:hover {
-            background-color: #c3e6cb;
-            border-color: #28a745;
-        }
-
-        .btn-warning-minimal {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-
-        .btn-warning-minimal:hover {
-            background-color: #ffe69c;
-            border-color: #ffc107;
-        }
-
-        .btn-danger-minimal {
-            background-color: var(--red-light);
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .btn-danger-minimal:hover {
-            background-color: #f1b0b7;
-            border-color: var(--red-primary);
-        }
-
-        .action-buttons {
-            display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        /* Alert */
-        .alert-minimal {
-            border-radius: 8px;
-            padding: 1rem 1.25rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .alert-secondary {
-            background-color: var(--gray-200);
-            color: var(--gray-700);
-            border-color: var(--gray-300);
-        }
-
-        /* History Timeline */
-        .history-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .history-item {
-            padding: 1rem;
-            border: 1px solid var(--gray-200);
-            border-radius: 8px;
-            margin-bottom: 0.75rem;
-            background: white;
-        }
-
-        .history-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .history-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 0.5rem;
-        }
-
-        .history-action {
-            font-weight: 600;
-            color: var(--gray-900);
-            text-transform: capitalize;
-        }
-
-        .history-user {
-            color: var(--gray-700);
-            font-size: 0.875rem;
-        }
-
-        .history-time {
-            color: var(--gray-700);
-            font-size: 0.8125rem;
-        }
-
-        .history-comment {
-            margin-top: 0.5rem;
-            padding: 0.75rem;
-            background: var(--gray-50);
-            border-radius: 6px;
-            font-size: 0.9375rem;
-            color: var(--gray-900);
-        }
-
-        .file-link {
-            color: var(--red-primary);
-            text-decoration: none;
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-        }
-
-        .file-link:hover {
-            color: var(--red-dark);
-            text-decoration: underline;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .container-main {
-                padding: 1.5rem 1rem;
-            }
-
-            .page-title {
-                font-size: 1.5rem;
-            }
-
-            .info-card {
-                padding: 1.25rem;
-            }
-
-            .action-buttons {
-                flex-direction: column;
-            }
-
-            .action-buttons button {
-                width: 100%;
-                justify-content: center;
-            }
-
-            .items-table thead {
-                display: none;
-            }
-
-            .items-table tbody tr {
-                display: block;
-                margin-bottom: 1rem;
-                border: 1px solid var(--gray-200);
-                border-radius: 8px;
-            }
-
-            .items-table tbody td {
-                display: flex;
-                justify-content: space-between;
-                padding: 0.75rem 1rem;
-                border: none;
-                border-bottom: 1px solid var(--gray-100);
-            }
-
-            .items-table tbody td:last-child {
-                border-bottom: none;
-            }
-
-            .items-table tbody td::before {
-                content: attr(data-label);
-                font-weight: 600;
-                color: var(--gray-700);
-                font-size: 0.8125rem;
-                text-transform: uppercase;
-            }
-        }
-    </style>
 </head>
-<body>
+<body class="container py-4">
     <?php include('../includes/head_dean_navbar.php'); ?>
-    
-    <div class="container-main">
-        <a href="dean_requests.php" class="back-button">
-            <i class="bi bi-arrow-left"></i> Back to Requests
-        </a>
 
-        <div class="page-header">
-            <h1 class="page-title">Request <span class="request-id">#<?= htmlspecialchars($request['request_id'] ?: $request['id']) ?></span></h1>
-            <span class="badge-minimal <?= $badge_class ?>">
-                <?php if (strpos($status, 'approved') !== false): ?>
-                    <i class="bi bi-check-circle"></i>
-                <?php elseif (strpos($status, 'rejected') !== false): ?>
-                    <i class="bi bi-x-circle"></i>
-                <?php elseif (strpos($status, 'completed') !== false): ?>
-                    <i class="bi bi-check-circle-fill"></i>
-                <?php else: ?>
-                    <i class="bi bi-clock-history"></i>
-                <?php endif; ?>
-                <?= htmlspecialchars($status_text) ?>
-            </span>
-        </div>
+    <a href="dean_requests.php" class="btn btn-sm btn-secondary mb-3">← Back to list</a>
 
-        <!-- Request Details -->
-        <div class="info-card">
-            <h5><i class="bi bi-info-circle"></i> Request Details</h5>
-            <div class="info-row">
-                <div class="info-label">Requester</div>
-                <div class="info-value"><?= htmlspecialchars($request['first_name'] . ' ' . $request['last_name']) ?></div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Description</div>
-                <div class="info-value"><?= nl2br(htmlspecialchars($request['description'] ?? 'No description provided')) ?></div>
-            </div>
+    <div class="card mb-4">
+        <div class="card-body">
+            <h3>Request <?= htmlspecialchars($request['request_id'] ?: $request['id']) ?></h3>
+            <p><strong>Requester:</strong> <?= htmlspecialchars($request['first_name'] . ' ' . $request['last_name']) ?></p>
+            <p><strong>Description:</strong><br><?= nl2br(htmlspecialchars($request['description'] ?? '')) ?></p>
             <?php if (!empty($request['attachment'])): ?>
-            <div class="info-row">
-                <div class="info-label">Attachment</div>
-                <div class="info-value">
-                    <a href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank" class="file-link">
-                        <i class="bi bi-paperclip"></i> View Attached File
-                    </a>
-                </div>
-            </div>
+                <p><strong>Attachment:</strong> <a href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank">Download</a></p>
             <?php endif; ?>
-            <div class="info-row">
-                <div class="info-label">Date Submitted</div>
-                <div class="info-value"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($request['created_at']))) ?></div>
-            </div>
+            <p><small class="text-muted">Status: <?= htmlspecialchars($request['status']) ?> • Created at: <?= htmlspecialchars($request['created_at']) ?></small></p>
         </div>
+    </div>
 
-        <!-- Requested Items -->
-        <div class="info-card">
-            <h5><i class="bi bi-box-seam"></i> Requested Items</h5>
+    <div class="card mb-4">
+        <div class="card-header"><h5>Items</h5></div>
+        <div class="card-body">
             <?php if (empty($items)): ?>
-                <p style="color: var(--gray-700); margin: 0;">No items attached to this request.</p>
+                <p>No items attached.</p>
             <?php else: ?>
-                <table class="items-table">
-                    <thead>
-                        <tr>
-                            <th>Item Name</th>
-                            <th>Quantity</th>
-                            <th>Unit</th>
-                            <th>Priority</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($items as $it): ?>
-                            <tr>
-                                <td data-label="Item"><?= htmlspecialchars($it['item_name']) ?></td>
-                                <td data-label="Quantity"><strong><?= htmlspecialchars($it['quantity']) ?></strong></td>
-                                <td data-label="Unit"><?= htmlspecialchars($it['unit']) ?></td>
-                                <td data-label="Priority"><?= htmlspecialchars(ucfirst($it['priority'])) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
-
-        <!-- Take Action -->
-        <?php if ($can_act): ?>
-        <div class="info-card">
-            <h5><i class="bi bi-lightning"></i> Take Action</h5>
-            <form method="POST" action="dean_requests.php" id="actionForm">
-                <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
-                <div class="mb-3">
-                    <label class="form-label-minimal">Comment (Optional, required when returning)</label>
-                    <textarea name="comment" class="form-control form-control-minimal" rows="3" placeholder="Add your comment here..."></textarea>
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Priority</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($items as $it): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($it['item_name']) ?></td>
+                                    <td><?= htmlspecialchars($it['quantity']) ?></td>
+                                    <td><?= htmlspecialchars($it['unit']) ?></td>
+                                    <td><?= htmlspecialchars($it['priority']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-                <div class="action-buttons">
-                    <button type="submit" name="action" value="approve" class="btn-minimal btn-success-minimal">
-                        <i class="bi bi-check-circle"></i> Approve & Forward
-                    </button>
-                    <button type="submit" name="action" value="return" class="btn-minimal btn-warning-minimal" id="btnReturn">
-                        <i class="bi bi-arrow-return-left"></i> Return with Comment
-                    </button>
-                    <button type="submit" name="action" value="reject" class="btn-minimal btn-danger-minimal">
-                        <i class="bi bi-x-circle"></i> Reject Request
-                    </button>
-                </div>
-            </form>
-        </div>
-        <?php else: ?>
-        <div class="alert-minimal alert-secondary">
-            <i class="bi bi-info-circle"></i>
-            <span>No actions available for this request (current status: <?= htmlspecialchars($status_text) ?>)</span>
-        </div>
-        <?php endif; ?>
-
-        <?php if ($request['status'] === 'approved'): ?>
-        <div class="info-card">
-            <h5><i class="bi bi-truck"></i> Release & Receipt</h5>
-            <div class="info-row">
-                <div class="info-label">Scheduled Release Date</div>
-                <div class="info-value"><?= $rel_date ? htmlspecialchars(date('M d, Y', strtotime($rel_date))) : 'Not scheduled' ?></div>
-            </div>
-            <?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger mt-3"><?=$_SESSION['flash_error']; unset($_SESSION['flash_error']);?></div><?php endif; ?>
-            <?php if (!empty($_SESSION['flash_success'])): ?><div class="alert alert-success mt-3"><?=$_SESSION['flash_success']; unset($_SESSION['flash_success']);?></div><?php endif; ?>
-
-            <?php if ($latest_receipt): ?>
-                <div class="mt-3">
-                    <div class="info-label">Submitted Receipt</div>
-                    <div class="info-value">
-                        <a class="file-link" href="<?= htmlspecialchars($latest_receipt['photo_path']) ?>" target="_blank"><i class="bi bi-image"></i> View Receipt Photo</a>
-                        <div class="text-muted mt-1">Status: <?= htmlspecialchars($latest_receipt['status']) ?></div>
-                    </div>
-                </div>
-            <?php else: ?>
-                <form method="POST" enctype="multipart/form-data" class="mt-3">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
-                    <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
-                    <label class="form-label-minimal">Attach photo of released items (jpg, png, gif, webp)</label>
-                    <input type="file" name="receipt_photo" class="form-control form-control-minimal" accept="image/*" required>
-                    <div class="action-buttons mt-3">
-                        <button type="submit" name="submit_receipt" class="btn-minimal btn-success-minimal"><i class="bi bi-check2-circle"></i> Mark as Received</button>
-                    </div>
-                </form>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- Action History -->
-        <div class="info-card">
-            <h5><i class="bi bi-clock-history"></i> Action History</h5>
-            <?php if (empty($history)): ?>
-                <p style="color: var(--gray-700); margin: 0;">No actions recorded yet.</p>
-            <?php else: ?>
-                <ul class="history-list">
-                    <?php foreach ($history as $h): ?>
-                        <li class="history-item">
-                            <div class="history-header">
-                                <div>
-                                    <div class="history-action"><?= htmlspecialchars(str_replace('_', ' ', $h['action_type'])) ?></div>
-                                    <div class="history-user">by <?= htmlspecialchars($h['first_name'] . ' ' . $h['last_name']) ?> (<?= htmlspecialchars(ucfirst($h['role'])) ?>)</div>
-                                </div>
-                                <div class="history-time"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($h['created_at']))) ?></div>
-                            </div>
-                            <?php if (!empty($h['comment'])): ?>
-                                <div class="history-comment"><?= nl2br(htmlspecialchars($h['comment'])) ?></div>
-                            <?php endif; ?>
-                        </li>
-                    <?php endforeach; ?>
-                </ul>
             <?php endif; ?>
         </div>
     </div>
+
+    <?php
+    $can_act = false;
+    $role = $_SESSION['role'] ?? '';
+    if ($role === 'dean' && $request['status'] === 'pending_dean') $can_act = true;
+    if ($role === 'head' && $request['status'] === 'pending_head') $can_act = true;
+    ?>
+    <?php if ($can_act): ?>
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5>Take Action</h5>
+                <form method="POST" action="dean_requests.php" id="actionForm">
+                    <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                    <div class="mb-3">
+                        <label class="form-label">Comment (optional, required when returning)</label>
+                        <textarea name="comment" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" name="action" value="approve" class="btn btn-success">Approve & Forward to Supply Officer</button>
+                        <button type="submit" name="action" value="return" class="btn btn-warning" id="btnReturn">Return with Comment</button>
+                        <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    <?php else: ?>
+        <div class="alert alert-secondary">No actions available for this request (current status: <?= htmlspecialchars($request['status']) ?>).</div>
+    <?php endif; ?>
 
     <script>
         document.addEventListener('DOMContentLoaded', function(){
             var btn = document.getElementById('btnReturn');
             if (btn) btn.addEventListener('click', function(e){
                 var comment = document.querySelector('textarea[name="comment"]').value.trim();
-                if (!comment) { 
-                    e.preventDefault(); 
-                    alert('Please provide a comment when returning a request.'); 
-                }
+                if (!comment) { e.preventDefault(); alert('Please provide a comment when returning a request.'); }
             });
         });
     </script>
+
+    <div class="card">
+        <div class="card-body">
+            <h5>Action History</h5>
+            <?php if (empty($history)): ?>
+                <p>No actions recorded yet.</p>
+            <?php else: ?>
+                <ul class="list-group">
+                    <?php foreach ($history as $h): ?>
+                        <li class="list-group-item">
+                            <strong><?= htmlspecialchars($h['action_type']) ?></strong> by <?= htmlspecialchars($h['first_name'] . ' ' . $h['last_name']) ?> (<?= htmlspecialchars($h['role']) ?>)
+                            <div class="text-muted small"><?= htmlspecialchars($h['created_at']) ?></div>
+                            <?php if (!empty($h['comment'])): ?><div class="mt-2"><?= nl2br(htmlspecialchars($h['comment'])) ?></div><?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>

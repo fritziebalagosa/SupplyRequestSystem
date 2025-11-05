@@ -12,16 +12,6 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['officer
 $user_id = $_SESSION['user_id'];
 $college_office_id = $_SESSION['college_office_id'] ?? null;
 
-// Ensure alerts table exists for both GET and POST flows
-$conn->query("CREATE TABLE IF NOT EXISTS low_stock_alerts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    item_id INT NOT NULL,
-    sent_by INT NOT NULL,
-    college_office_id INT DEFAULT NULL,
-    status VARCHAR(32) DEFAULT 'open',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
 // Handle Send Low Stock Alert
 if (isset($_POST['send_alert'])) {
     $item_id = (int)($_POST['item_id'] ?? 0);

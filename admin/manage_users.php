@@ -496,7 +496,7 @@ function showUserDetails(data) {
 </script>
 </head>
 <body>
-<?php include('../includes/admin_navbar.php'); ?>
+<?php include('../includes/admin_sidebar.php'); ?>
 
 <div class="container-main">
     <div class="page-header">

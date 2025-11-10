@@ -2,6 +2,11 @@
 session_start();
 include('../config/db.php');
 
+// Generate form token
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $_SESSION['form_token'] = bin2hex(random_bytes(32));
+}
+
 // ✅ Ensure requester is logged in
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'requester') {
     header('Location: ../auth/log_in.php');
@@ -29,6 +34,16 @@ if (!$college_office_id) {
 
 // ✅ Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Check if this form was already submitted
+    if (!isset($_SESSION['form_token']) || !isset($_POST['form_token']) || 
+        $_SESSION['form_token'] !== $_POST['form_token']) {
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    }
+    
+    // Clear the token to prevent resubmission
+    unset($_SESSION['form_token']);
+    
     $item_raw = $_POST['item_name'] ?? [];
     $unit_raw = $_POST['unit'] ?? [];
     $qty_raw = $_POST['quantity'] ?? [];
@@ -399,118 +414,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </style>
 
-    <script>
-        $(document).ready(function() {
-            let items = [];
-
-            function resetItemInputs() {
-                $('#item_name').val('');
-                $('#stock_number').val('');
-                $('#unit').val('');
-                $('#quantity').val('');
-                $('#priority').val('normal');
-                $('.step2').hide();
-                $('#suggestions').empty();
-            }
-
-            function updateItemsTable() {
-                const tbody = $('#itemsTable tbody');
-                tbody.empty();
-                items.forEach((item, idx) => {
-                    tbody.append(`
-                        <tr>
-                            <td>${$('<div>').text(item.name).html()}</td>
-                            <td>${$('<div>').text(item.stock).html()}</td>
-                            <td>${$('<div>').text(item.unit).html()}</td>
-                            <td><strong>${item.qty}</strong></td>
-                            <td>${$('<div>').text(item.priority).html()}</td>
-                            <td>
-                                <button type="button" class="btn btn-sm btn-danger remove-item" data-idx="${idx}">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                        </tr>
-                    `);
-                });
-                if (items.length > 0) {
-                    $('#itemsListRow').show();
-                    $('#finalStep').show();
-                    $('#submitRow').show();
-                } else {
-                    $('#itemsListRow').hide();
-                    $('#finalStep').hide();
-                    $('#submitRow').hide();
-                }
-            }
-
-            function updateHiddenFields() {
-                const hidden = $('#hiddenItems');
-                hidden.empty();
-                items.forEach((item) => {
-                    hidden.append(`<input type="hidden" name="item_name[]" value="${$('<div>').text(item.name).html()}">`);
-                    hidden.append(`<input type="hidden" name="unit[]" value="${$('<div>').text(item.unit).html()}">`);
-                    hidden.append(`<input type="hidden" name="quantity[]" value="${item.qty}">`);
-                    hidden.append(`<input type="hidden" name="priority[]" value="${item.priority}">`);
-                });
-            }
-
-            $('#item_name').on('input', function() {
-                const query = $(this).val();
-                if (query.length < 2) {
-                    $('#suggestions').empty();
-                    return;
-                }
-                $.ajax({
-                    url: 'search_item.php',
-                    method: 'GET',
-                    data: { q: query },
-                    success: function(data) {
-                        $('#suggestions').html(data);
-                    }
-                });
-            });
-
-            $(document).on('click', '.suggest-item', function() {
-                $('#item_name').val($(this).data('name'));
-                $('#stock_number').val($(this).data('stock'));
-                $('#unit').val($(this).data('unit'));
-                $('#suggestions').empty();
-                $('.step2').fadeIn();
-            });
-
-            $(document).on('click', '#addItemBtn', function() {
-                const name = $('#item_name').val().trim();
-                const stock = $('#stock_number').val().trim();
-                const unit = $('#unit').val().trim();
-                const qty = parseInt($('#quantity').val(), 10);
-                const priority = $('#priority').val();
-                
-                if (!name || !unit || !qty || qty < 1) {
-                    alert('Please fill in all item fields and ensure quantity is greater than 0.');
-                    return;
-                }
-                
-                items.push({ name, stock, unit, qty, priority });
-                updateItemsTable();
-                updateHiddenFields();
-                resetItemInputs();
-            });
-
-            $(document).on('click', '.remove-item', function() {
-                const idx = $(this).data('idx');
-                items.splice(idx, 1);
-                updateItemsTable();
-                updateHiddenFields();
-            });
-
-            $('#requestForm').on('submit', function(e) {
-                if (items.length === 0) {
-                    alert('Please add at least one item to your request.');
-                    e.preventDefault();
-                }
-            });
-        });
-    </script>
+                <!-- Modal for restock warning, beautified to match system UI -->
+                <div class="modal fade" id="restockModal" tabindex="-1" aria-labelledby="restockModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content" style="border-radius: 16px; box-shadow: 0 6px 32px rgba(220,53,69,0.10), 0 1.5px 6px rgba(33,33,33,0.06); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;">
+                            <div class="modal-header" style="background: var(--red-light); border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: none;">
+                                <h5 class="modal-title d-flex align-items-center gap-2" id="restockModalLabel" style="color: var(--red-primary); font-weight: 600; font-size: 1.15rem;">
+                                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 1.5rem; color: var(--red-primary);"></i>
+                                    Cannot Add Item
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="filter: invert(40%) sepia(100%) saturate(500%) hue-rotate(-10deg);"></button>
+                            </div>
+                            <div class="modal-body" id="restockModalBody" style="padding: 1.5rem 2rem 1rem 2rem; color: var(--gray-900); font-size: 1.05rem;">
+                                <!-- Message will be injected here -->
+                            </div>
+                            <div class="modal-footer" style="border-top: none; padding-bottom: 1.5rem;">
+                                <button type="button" class="btn btn-primary-minimal w-100" data-bs-dismiss="modal" style="background: var(--red-primary); color: #fff; border-radius: 8px; font-weight: 500; font-size: 1rem;">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+        <script src="dashboard.js"></script>
 </head>
 
 <body>
@@ -622,74 +546,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <div id="hiddenItems"></div>
+                <input type="hidden" name="form_token" value="<?php echo htmlspecialchars($_SESSION['form_token'] ?? ''); ?>">
             </form>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-    // ...existing code...
-    let lastCheckedStock = null;
-    let lastCheckedReorder = null;
-
-    // Show warning message
-    function showRestockWarning(msg) {
-        let html = '<i class="bi bi-exclamation-triangle"></i> ' + msg;
-        
-        if ($('#restock-warning').length === 0) {
-            $('<div id="restock-warning" class="alert alert-warning mt-2">' + html + '</div>')
-                .insertBefore('#addItemBtn');
-        } else {
-            $('#restock-warning').html(html).show();
-        }
-    }
-
-    function hideRestockWarning() {
-        $('#restock-warning').remove();
-    }
-
-    // Check stock and reorder level when quantity changes
-    $('#quantity').on('input', function() {
-        const itemName = $('#item_name').val().trim();
-        const qty = parseInt($(this).val(), 10);
-        if (!itemName || !qty || qty < 1) {
-            hideRestockWarning();
-            return;
-        }
-        $.get('get_item_stock.php', { item_name: itemName }, function(data) {
-            if (data.success) {
-                lastCheckedStock = data.stock_qty;
-                lastCheckedReorder = data.reorder_level;
-                const stockAfter = data.stock_qty - qty;
-                if (stockAfter <= data.reorder_level) {
-                    showRestockWarning('Warning: This request will bring the stock to or below the restock level (' + data.reorder_level + ').');
-                } else {
-                    hideRestockWarning();
-                }
-            } else {
-                hideRestockWarning();
-            }
-        }, 'json');
-    });
-
-    // Also check when item name changes (reset warning)
-    $('#item_name').on('input', function() {
-        hideRestockWarning();
-    });
-
-    // Check again before adding item
-    $(document).on('click', '#addItemBtn', function(e) {
-        const name = $('#item_name').val().trim();
-        const qty = parseInt($('#quantity').val(), 10);
-        if (lastCheckedStock !== null && lastCheckedReorder !== null && name && qty) {
-            const stockAfter = lastCheckedStock - qty;
-            if (stockAfter <= lastCheckedReorder) {
-                showRestockWarning('Warning: This request will bring the stock to or below the restock level (' + lastCheckedReorder + ').');
-            } else {
-                hideRestockWarning();
-            }
-        }
-    });
-    </script>
 </body>
 </html>

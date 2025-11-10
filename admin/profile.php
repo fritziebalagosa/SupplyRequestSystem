@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	</style>
 </head>
 <body>
-	<?php include('../includes/admin_navbar.php'); ?>
+	<?php include('../includes/admin_sidebar.php'); ?>
 	<div class="container-main">
 		<div class="section-card">
 			<h3>My Profile</h3>

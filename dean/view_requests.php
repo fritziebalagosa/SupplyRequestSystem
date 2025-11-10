@@ -87,10 +87,14 @@ $csrf_token = generate_csrf_token();
                     <table class="table">
                         <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Priority</th></tr></thead>
                         <tbody>
-                            <?php foreach ($items as $it): ?>
+                            <?php foreach ($items as $it):
+                                $reqQty = (int)$it['quantity'];
+                                $approved = isset($it['approved_quantity']) && $it['approved_quantity'] !== null ? (int)$it['approved_quantity'] : null;
+                                $effective = $approved !== null ? $approved : $reqQty;
+                            ?>
                                 <tr>
                                     <td><?= htmlspecialchars($it['item_name']) ?></td>
-                                    <td><?= htmlspecialchars($it['quantity']) ?></td>
+                                    <td><?= $effective ?><?php if ($approved !== null && $approved !== $reqQty): ?> <div class="small text-muted">Requested: <?= $reqQty ?> — Adjusted: <?= $approved ?></div><?php endif; ?></td>
                                     <td><?= htmlspecialchars($it['unit']) ?></td>
                                     <td><?= htmlspecialchars($it['priority']) ?></td>
                                 </tr>

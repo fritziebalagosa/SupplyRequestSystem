@@ -74,7 +74,7 @@ $comp_res = $comp_stmt->get_result();
   </style>
 </head>
 <body>
-<?php include('../includes/admin_navbar.php'); ?>
+<?php include('../includes/admin_sidebar.php'); ?>
 <div class="container-main">
   <h3 class="page-title mb-3"><i class="bi bi-clipboard-check"></i> Records</h3>
 

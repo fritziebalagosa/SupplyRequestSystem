@@ -20,12 +20,28 @@ $stmt->close();
 
 if (!$request) die('Request not found or access denied');
 
-// fetch items
-$items_stmt = $conn->prepare("SELECT ri.*, it.item_name FROM request_items ri JOIN items it ON ri.item_id = it.id WHERE ri.request_id = ?");
+// fetch items with approved quantities if they exist
+$items_stmt = $conn->prepare("
+    SELECT 
+        ri.*,
+        it.item_name,
+        it.unit,
+        COALESCE(ri.priority, 'Normal') as priority,
+        ri.approved_quantity
+    FROM request_items ri 
+    JOIN items it ON ri.item_id = it.id 
+    WHERE ri.request_id = ?");
 $items_stmt->bind_param("i", $id);
 $items_stmt->execute();
 $items = $items_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $items_stmt->close();
+
+// fetch action history for this request (used to show return comments)
+$hist_stmt = $conn->prepare("SELECT ra.*, u.first_name, u.last_name FROM request_actions ra LEFT JOIN users u ON ra.action_by = u.id WHERE ra.request_id = ? ORDER BY ra.created_at DESC");
+$hist_stmt->bind_param("i", $id);
+$hist_stmt->execute();
+$history = $hist_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$hist_stmt->close();
 
 $message = '';
 // Handle receipt submission
@@ -503,23 +519,84 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 <thead>
                     <tr>
                         <th>Item Name</th>
-                        <th>Quantity</th>
+                        <th>Requested</th>
+                        <th>Approved</th>
                         <th>Unit</th>
                         <th>Priority</th>
                     </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($items as $it): ?>
+                <?php 
+                // Check if any quantities were adjusted
+                $hasAdjustments = false;
+                foreach ($history as $h) {
+                    if (strpos(($h['comment'] ?? ''), 'Adjustments:') !== false) {
+                        $hasAdjustments = true;
+                        break;
+                    }
+                }
+                foreach ($items as $it): ?>
                     <tr>
                         <td data-label="Item"><?= htmlspecialchars($it['item_name']) ?></td>
-                        <td data-label="Quantity"><strong><?= htmlspecialchars($it['quantity']) ?></strong></td>
+                        <td data-label="Requested"><strong><?= (int)$it['quantity'] ?></strong></td>
+                        <td data-label="Approved">
+                            <?php 
+                            if ($it['approved_quantity'] !== null) {
+                                echo '<strong>' . (int)$it['approved_quantity'] . '</strong>';
+                                if ($it['approved_quantity'] != $it['quantity']): ?>
+                                    <span class="badge-minimal badge-warning" style="margin-left: 0.5rem;">
+                                        <i class="bi bi-pencil-square"></i> Adjusted
+                                    </span>
+                                <?php endif;
+                            } else {
+                                echo '<span class="text-muted">Pending</span>';
+                            } ?>
+                        </td>
                         <td data-label="Unit"><?= htmlspecialchars($it['unit']) ?></td>
                         <td data-label="Priority"><?= htmlspecialchars(ucfirst($it['priority'])) ?></td>
                     </tr>
                 <?php endforeach; ?>
+                <?php if ($hasAdjustments): ?>
+                <tr>
+                    <td colspan="5">
+                        <div class="alert-minimal alert-warning">
+                            <i class="bi bi-info-circle"></i>
+                            Some quantities have been adjusted by the Supply Officer. See history below for details.
+                        </div>
+                    </td>
+                </tr>
+                <?php endif; ?>
                 </tbody>
             </table>
         </div>
+
+        <?php
+        // find latest return comment if any
+        $last_return_comment = '';
+        foreach ($history as $h) {
+            if (($h['action_type'] ?? '') === 'returned') {
+                $last_return_comment = $h['comment'] ?? '';
+                break; // history already ordered desc
+            }
+        }
+        ?>
+
+        <!-- If returned, show edit/resubmit option -->
+        <?php if (strpos($status, 'returned') !== false): ?>
+        <div class="info-card">
+            <h5><i class="bi bi-arrow-return-left"></i> Returned - Action Required</h5>
+            <p style="color: var(--gray-700);">Your request was returned for clarification or changes. Please review the comment and update your request before resubmitting.</p>
+            <?php if ($last_return_comment): ?>
+                <div class="mb-3">
+                    <label class="form-label-minimal">Comment from approver</label>
+                    <div class="form-control-minimal" style="background:transparent;border:none;padding:0;"><?= nl2br(htmlspecialchars($last_return_comment)) ?></div>
+                </div>
+            <?php endif; ?>
+            <div class="form-actions">
+                <a href="edit_request.php?id=<?= $request['id'] ?>" class="btn-minimal btn-primary-minimal"><i class="bi bi-pencil"></i> Edit & Resubmit</a>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Confirm Receipt (only if approved) -->
         <?php if ($request['status'] === 'approved'): ?>

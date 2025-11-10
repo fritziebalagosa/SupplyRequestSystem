@@ -58,11 +58,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $up->execute();
         $up->close();
 
-        // Deduct stock
-        $ded = $conn->prepare("UPDATE items JOIN request_items ON items.id=request_items.item_id SET items.stock_qty = items.stock_qty - request_items.quantity WHERE request_items.request_id = ?");
-        $ded->bind_param('i', $request_id);
-        $ded->execute();
-        $ded->close();
+    // Deduct stock: use approved_quantity if the column exists, otherwise use requested quantity
+    $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
+    $hasApprovedCol = ($colCheck && $colCheck->num_rows > 0);
+    if ($hasApprovedCol) {
+      $ded = $conn->prepare("UPDATE items JOIN request_items ON items.id=request_items.item_id SET items.stock_qty = items.stock_qty - COALESCE(request_items.approved_quantity, request_items.quantity) WHERE request_items.request_id = ?");
+    } else {
+      $ded = $conn->prepare("UPDATE items JOIN request_items ON items.id=request_items.item_id SET items.stock_qty = items.stock_qty - request_items.quantity WHERE request_items.request_id = ?");
+    }
+    $ded->bind_param('i', $request_id);
+    $ded->execute();
+    $ded->close();
 
         // Upsert release schedule
         $conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -140,8 +146,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch items
-$it = $conn->prepare("SELECT i.item_name, i.unit, ri.quantity, COALESCE(ri.priority, 'Normal') AS priority FROM request_items ri JOIN items i ON ri.item_id=i.id WHERE ri.request_id=?");
+$it = null;
+$colCheckItems = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
+$hasApprovedItems = ($colCheckItems && $colCheckItems->num_rows > 0);
+if ($hasApprovedItems) {
+  $it = $conn->prepare("SELECT i.item_name, i.unit, ri.quantity, ri.approved_quantity, COALESCE(ri.approved_quantity, ri.quantity) AS effective_quantity, COALESCE(ri.priority, 'Normal') AS priority FROM request_items ri JOIN items i ON ri.item_id=i.id WHERE ri.request_id=?");
+} else {
+  $it = $conn->prepare("SELECT i.item_name, i.unit, ri.quantity, NULL AS approved_quantity, ri.quantity AS effective_quantity, COALESCE(ri.priority, 'Normal') AS priority FROM request_items ri JOIN items i ON ri.item_id=i.id WHERE ri.request_id=?");
+}
 $it->bind_param('i', $request_id);
 $it->execute();
 $items = $it->get_result();
@@ -185,13 +197,17 @@ $rec_stmt->close();
     .container-main{max-width:1100px;margin:0 auto;padding:24px}
     .page-title{font-weight:600;margin-bottom:12px}
     .request-id{color:#dc3545;font-family:Courier New,monospace;font-weight:600}
-    .card-min{background:#fff;border:1px solid #eee;border-radius:12px}
-    .card-min .card-header{background:#f8f9fa;font-weight:600;border-bottom:1px solid #eee}
+    .section-card{background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;margin-bottom:1rem}
+    .section-header{padding:1rem 1.25rem;border-bottom:1px solid #eee;background:#fff}
+    .section-header h2{font-size:1.05rem;font-weight:600;margin:0}
     .items-table th{background:#f6f6f6;text-transform:uppercase;font-size:.8rem}
+    .badge-status{background:#fff3cd;color:#856404;border:1px solid #ffeaa7}
+    .list-group .list-group-item{border:0;border-top:1px solid #eee;padding-top:.5rem;padding-bottom:.5rem}
+    .list-group .list-group-item:first-child{border-top:0}
   </style>
 </head>
 <body>
-<?php include('../includes/admin_navbar.php'); ?>
+  <?php include('../includes/admin_sidebar.php'); ?>
 <div class="container-main">
   <a href="manage_requests.php" class="btn btn-light border mb-3"><i class="bi bi-arrow-left"></i> Back to Requests</a>
 
@@ -199,17 +215,19 @@ $rec_stmt->close();
   <?php if(isset($_SESSION['error'])): ?><div class="alert alert-danger"><?=$_SESSION['error']; unset($_SESSION['error']);?></div><?php endif; ?>
 
   <h3 class="page-title">Request <span class="request-id">#<?= htmlspecialchars($request['request_id'] ?: $request['id']) ?></span>
-    <span class="badge bg-warning-subtle text-warning border ms-2"><?= htmlspecialchars($status_text) ?></span>
+    <span class="badge badge-status ms-2 px-2 py-1"><?= htmlspecialchars($status_text) ?></span>
   </h3>
 
-  <div class="card-min mb-3">
-    <div class="card-header">Request Details</div>
-    <div class="card-body">
+  <div class="section-card">
+    <div class="section-header"><h2>Request Details</h2></div>
+    <div class="p-3">
       <div class="row g-3">
         <div class="col-md-6"><div class="text-muted">Requester</div><div><?= htmlspecialchars($request['first_name'].' '.$request['last_name']) ?></div></div>
         <div class="col-md-6"><div class="text-muted">Date Submitted</div><div><?= htmlspecialchars(date('M d, Y g:i A', strtotime($request['created_at']))) ?></div></div>
         <div class="col-12"><div class="text-muted">Description</div><div><?= nl2br(htmlspecialchars($request['description'] ?? '')) ?></div></div>
-        <div class="col-md-6"><div class="text-muted">Scheduled Release</div><div><?= $sched_date ? htmlspecialchars(date('M d, Y', strtotime($sched_date))) : '—' ?></div></div>
+        <?php if ($sched_date): ?>
+        <div class="col-md-6"><div class="text-muted">Scheduled Release</div><div><?= htmlspecialchars(date('M d, Y', strtotime($sched_date))) ?></div></div>
+        <?php endif; ?>
         <?php if(!empty($request['attachment'])): ?>
           <div class="col-12"><div class="text-muted">Attachment</div><a class="link-danger" href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank"><i class="bi bi-paperclip"></i> View Attached File</a></div>
         <?php endif; ?>
@@ -217,17 +235,26 @@ $rec_stmt->close();
     </div>
   </div>
 
-  <div class="card-min mb-3">
-    <div class="card-header">Requested Items</div>
-    <div class="card-body">
+  <div class="section-card">
+    <div class="section-header"><h2>Requested Items</h2></div>
+    <div class="p-3">
       <div class="table-responsive">
         <table class="table items-table">
           <thead><tr><th>Item Name</th><th class="text-center">Quantity</th><th class="text-center">Unit</th><th class="text-center">Priority</th></tr></thead>
           <tbody>
-            <?php while($row=$items->fetch_assoc()): ?>
+            <?php while($row=$items->fetch_assoc()):
+                $requested = (int)$row['quantity'];
+                $approved = isset($row['approved_quantity']) && $row['approved_quantity'] !== null ? (int)$row['approved_quantity'] : null;
+                $effective = (int)$row['effective_quantity'];
+            ?>
               <tr>
                 <td><?= htmlspecialchars($row['item_name']) ?></td>
-                <td class="text-center"><strong><?= (int)$row['quantity'] ?></strong></td>
+                <td class="text-center">
+                  <strong><?= $effective ?></strong>
+                  <?php if ($approved !== null && $approved !== $requested): ?>
+                    <div class="text-muted small">Requested: <?= $requested ?> — Adjusted to <?= $approved ?></div>
+                  <?php endif; ?>
+                </td>
                 <td class="text-center"><?= htmlspecialchars($row['unit']) ?></td>
                 <td class="text-center"><?= htmlspecialchars(ucfirst($row['priority'])) ?></td>
               </tr>
@@ -239,9 +266,9 @@ $rec_stmt->close();
   </div>
 
   <?php if ($receipt): ?>
-  <div class="card-min mb-3">
-    <div class="card-header">Receipt Confirmation</div>
-    <div class="card-body">
+  <div class="section-card">
+    <div class="section-header"><h2>Receipt Confirmation</h2></div>
+    <div class="p-3">
       <div class="mb-2">
         <div class="text-muted">Submitted Receipt</div>
         <a class="link-danger" href="<?= htmlspecialchars($receipt['photo_path']) ?>" target="_blank"><i class="bi bi-image"></i> View Receipt Photo</a>
@@ -258,9 +285,9 @@ $rec_stmt->close();
   <?php endif; ?>
 
   <?php if ($can_act): ?>
-  <div class="card-min mb-3">
-    <div class="card-header">Take Action</div>
-    <div class="card-body">
+  <div class="section-card">
+    <div class="section-header"><h2>Take Action</h2></div>
+    <div class="p-3">
       <form method="POST" class="row g-3">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>" />
         <div class="col-md-4">
@@ -285,9 +312,9 @@ $rec_stmt->close();
   </div>
   <?php endif; ?>
 
-  <div class="card-min mb-4">
-    <div class="card-header">Action History</div>
-    <div class="card-body">
+  <div class="section-card mb-4">
+    <div class="section-header"><h2>Action History</h2></div>
+    <div class="p-3">
       <?php if ($history->num_rows === 0): ?>
         <div class="text-muted">No actions recorded yet.</div>
       <?php else: ?>

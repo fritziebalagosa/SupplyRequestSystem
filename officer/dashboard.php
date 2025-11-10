@@ -12,17 +12,32 @@ $officer_id = (int)$_SESSION['user_id'];
 
 // Summary counts for officer workload
 function getOfficerCount($conn, $status = null) {
-    if ($status) {
-        $stmt = $conn->prepare("SELECT COUNT(*) FROM requests WHERE status = ?");
-        $stmt->bind_param('s', $status);
-    } else {
-        $stmt = $conn->prepare("SELECT COUNT(*) FROM requests");
+  if ($status) {
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM requests WHERE status = ?");
+    if ($stmt) {
+      $stmt->bind_param('s', $status);
     }
-    $stmt->execute();
-    $stmt->bind_result($count);
-    $stmt->fetch();
+  } else {
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM requests");
+  }
+  // defensive checks: ensure prepare succeeded and execute works
+  if (!$stmt) {
+    return 0;
+  }
+  if (!$stmt->execute()) {
     $stmt->close();
-    return (int)$count;
+    return 0;
+  }
+  // store result to be safe before binding/fetching
+  if (method_exists($stmt, 'store_result')) {
+    $stmt->store_result();
+  }
+  // initialize $count so static analysis doesn't warn about unassigned variable
+  $count = 0;
+  $stmt->bind_result($count);
+  $stmt->fetch();
+  $stmt->close();
+  return (int)$count;
 }
 
 $total_requests = getOfficerCount($conn);

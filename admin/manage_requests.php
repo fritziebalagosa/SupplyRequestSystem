@@ -24,13 +24,14 @@ if (isset($_POST['approve_request'])) {
     $stmt->bind_param("si", $release_date, $request_id);
     $stmt->execute();
 
-    // Deduct stock quantities
-    $update_stock = $conn->prepare("
-        UPDATE items 
-        JOIN request_items ON items.id = request_items.item_id
-        SET items.stock_qty = items.stock_qty - request_items.quantity
-        WHERE request_items.request_id = ?
-    ");
+    // Deduct stock quantities (use approved_quantity when column exists)
+    $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
+    $hasApproved = ($colCheck && $colCheck->num_rows > 0);
+    if ($hasApproved) {
+        $update_stock = $conn->prepare("UPDATE items JOIN request_items ON items.id = request_items.item_id SET items.stock_qty = items.stock_qty - COALESCE(request_items.approved_quantity, request_items.quantity) WHERE request_items.request_id = ?");
+    } else {
+        $update_stock = $conn->prepare("UPDATE items JOIN request_items ON items.id = request_items.item_id SET items.stock_qty = items.stock_qty - request_items.quantity WHERE request_items.request_id = ?");
+    }
     $update_stock->bind_param("i", $request_id);
     $update_stock->execute();
 
@@ -459,7 +460,7 @@ $result = $conn->query($query) or die('Query failed: ' . $conn->error);
     </style>
 </head>
 <body>
-<?php include('../includes/admin_navbar.php'); ?>
+<?php include('../includes/admin_sidebar.php'); ?>
 
 <div class="container-main">
     <div class="page-header">

@@ -65,7 +65,11 @@ $csrf_token = generate_csrf_token();
     <meta charset="UTF-8">
     <title>View Request</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>.small-label{font-size:0.9rem;color:#666}</style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .small-label{font-size:0.9rem;color:#666}
+        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; line-height: 1.5; border-radius: 0.2rem; }
+    </style>
 </head>
 <body class="container py-4">
     <a href="head_requests.php" class="btn btn-sm btn-secondary mb-3">← Back to list</a>
@@ -79,6 +83,31 @@ $csrf_token = generate_csrf_token();
             <p><strong>Attachment:</strong> <a href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank">Download</a></p>
         <?php endif; ?>
         <p class="small-label">Status: <?= htmlspecialchars($request['status']) ?> • Created at: <?= htmlspecialchars($request['created_at']) ?></p>
+        
+        <?php
+        // Check if receipt exists for this request
+        $receipt_stmt = $conn->prepare("SELECT * FROM release_proofs WHERE request_id = ? ORDER BY created_at DESC LIMIT 1");
+        $receipt_stmt->bind_param("i", $id);
+        $receipt_stmt->execute();
+        $receipt = $receipt_stmt->get_result()->fetch_assoc();
+        $receipt_stmt->close();
+        
+        if ($receipt): ?>
+            <div class="mt-3 p-2 bg-light rounded">
+                <p class="mb-1"><strong>Receipt Status:</strong> <span class="text-success">Received</span></p>
+                <p class="mb-1"><small class="text-muted">Received at: <?= date('M j, Y h:i A', strtotime($receipt['created_at'])) ?></small></p>
+                <?php if (!empty($receipt['image_path'])): ?>
+                    <a href="<?= htmlspecialchars($receipt['image_path']) ?>" target="_blank" class="btn btn-sm btn-outline-primary mt-1">
+                        <i class="bi bi-image"></i> View Receipt
+                    </a>
+                <?php endif; ?>
+                <?php if (!empty($receipt['notes'])): ?>
+                    <div class="mt-2 p-2 bg-white rounded">
+                        <p class="mb-0 small"><?= nl2br(htmlspecialchars($receipt['notes'])) ?></p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
     </div>
 
     <div class="card mb-3 p-3">

@@ -6,24 +6,26 @@ $current = basename($_SERVER['PHP_SELF']);
 $base = '/SupplyRequestSystem/requesters';
 $name = trim(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? ''));
 
-// Try to get notification count (requests with status 'returned' or 'approved')
+// Get notifications for the current user
 $notif_count = 0;
+$notifications = [];
 if (!empty($_SESSION['user_id'])) {
-    // include DB using document root to avoid relative-include issues
+    // Include required files
     $dbPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/config/db.php';
-    if (file_exists($dbPath)) {
+    $functionsPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/functions.php';
+    
+    if (file_exists($dbPath) && file_exists($functionsPath)) {
         include_once $dbPath;
-        if (isset($conn) && $conn instanceof mysqli) {
-            $q = $conn->prepare("SELECT COUNT(*) as cnt FROM requests WHERE requester_id = ? AND status IN ('returned','approved')");
-            $q->bind_param('i', $_SESSION['user_id']);
-            if ($q->execute()) {
-                $r = $q->get_result()->fetch_assoc();
-                $notif_count = intval($r['cnt'] ?? 0);
-            }
-            $q->close();
+        include_once $functionsPath;
+        
+        if (isset($conn) && $conn instanceof mysqli && function_exists('get_notifications')) {
+            // Get notifications for requester
+            $notifications = get_notifications($conn, $_SESSION['user_id'], 'requester', null, 5);
+            $notif_count = count($notifications);
         }
     }
 }
+
 ?>
 
 <style>
@@ -109,6 +111,7 @@ if (!empty($_SESSION['user_id'])) {
     transition: color 0.2s ease;
     text-decoration: none;
     display: inline-block;
+    cursor: pointer;
   }
 
   .navbar-custom .notification-link:hover {
@@ -248,12 +251,45 @@ if (!empty($_SESSION['user_id'])) {
       </ul>
 
       <div class="d-flex align-items-center gap-3">
-        <a href="#" class="notification-link">
-          <i class="bi bi-bell"></i>
-          <?php if ($notif_count > 0): ?>
-            <span class="notification-badge"><?= $notif_count ?></span>
-          <?php endif; ?>
-        </a>
+        <div class="dropdown">
+          <a href="#" class="notification-link dropdown-toggle" role="button" id="notificationDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-bell"></i>
+            <?php if ($notif_count > 0): ?>
+              <span class="notification-badge"><?= $notif_count ?></span>
+            <?php endif; ?>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="notificationDropdown">
+            <li class="dropdown-header d-flex justify-content-between align-items-center px-3 py-2">
+              <strong>Notifications</strong>
+              <?php if ($notif_count > 0): ?>
+                <a href="#" class="mark-all-read" style="font-size: 0.8rem;">Mark all as read</a>
+              <?php endif; ?>
+            </li>
+            <?php if ($notif_count > 0): ?>
+              <?php foreach ($notifications as $notification): ?>
+                <li>
+                  <a class="dropdown-item notification-item" href="<?= htmlspecialchars($notification['link']) ?>">
+                    <div class="d-flex w-100">
+                      <div class="notification-icon me-2">
+                        <i class="bi bi-bell-fill text-primary"></i>
+                      </div>
+                      <div class="notification-content">
+                        <div class="notification-message"><?= htmlspecialchars($notification['message']) ?></div>
+                        <div class="notification-time text-muted" style="font-size: 0.75rem;">
+                          <?= time_elapsed_string($notification['created_at']) ?>
+                        </div>
+                      </div>
+                    </div>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-center" href="<?= $base ?>/my_requests.php">View all notifications</a></li>
+            <?php else: ?>
+              <li class="px-3 py-2 text-muted">No new notifications</li>
+            <?php endif; ?>
+          </ul>
+        </div>
 
         <div class="dropdown profile-dropdown">
           <a class="dropdown-toggle" href="#" role="button" id="userMenu" data-bs-toggle="dropdown" aria-expanded="false">

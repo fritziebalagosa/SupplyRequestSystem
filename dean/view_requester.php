@@ -28,23 +28,78 @@ if (!$data) die('Requester not found or not associated with your account.');
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Requester Details</title>
+    <title>Requester Details - WMSU OSRS</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,system-ui;background:#fafafa;color:#212121}
-        .container-main{max-width:900px;margin:0 auto;padding:2rem}
-        .section-card{background:#fff;border:1px solid #eee;border-radius:10px;padding:1rem}
-        .id-badge{font-family:'Courier New',monospace;color:#dc3545;font-weight:600}
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,system-ui;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width:900px;
+            margin:0 auto;
+            padding:2rem 1.5rem;
+        }
+
+        .page-title {
+            font-size:1.75rem;
+            font-weight:600;
+            color:var(--gray-900);
+            letter-spacing:-0.5px;
+            margin-bottom:0.25rem;
+        }
+
+        .page-subtitle {
+            color:var(--gray-700);
+            font-size:0.9375rem;
+            margin-bottom:1.5rem;
+        }
+
+        .section-card {
+            background:#fff;
+            border-radius:12px;
+            border:1px solid var(--gray-200);
+            padding:1.5rem 1.75rem;
+        }
+
+        .id-badge{
+            font-family:'Courier New',monospace;
+            color:var(--red-primary);
+            font-weight:600
+        }
     </style>
 </head>
 <body>
     <?php include('../includes/head_dean_navbar.php'); ?>
 
     <div class="container-main">
-        <a href="dashboard.php" class="btn btn-sm btn-secondary mb-3">← Back to dashboard</a>
+        <a href="dashboard.php" class="btn btn-sm btn-secondary mb-3">
+            ← Back to dashboard
+        </a>
+        <h1 class="page-title">Requester Details</h1>
+        <p class="page-subtitle">View information about a requester account created under your office.</p>
         <div class="section-card">
-            <h3>Requester Details</h3>
             <p><strong>Name:</strong> <?= htmlspecialchars(trim($data['first_name'] . ' ' . ($data['middle_name'] ? $data['middle_name'] . ' ' : '') . $data['last_name'])) ?></p>
             <p><strong>Email:</strong> <?= htmlspecialchars($data['email']) ?></p>
             <p><strong>Status:</strong> <?= htmlspecialchars(ucfirst($data['status'])) ?></p>

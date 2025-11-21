@@ -85,7 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ia->execute();
         $ia->close();
 
-        $_SESSION['success'] = 'Request approved and stock updated.';
+        // Send notifications to requester, dean, and head
+        require_once('../includes/functions.php');
+        send_approval_notifications($conn, $request_id, $release_date);
+
+        $_SESSION['success'] = 'Request approved, stock updated, and notifications sent.';
         header('Location: view_request.php?id=' . $request_id);
         exit;
     }

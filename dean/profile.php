@@ -62,22 +62,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>My Profile - Dean</title>
+    <title>My Profile - WMSU OSRS</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <style>
-        body{background:#fafafa;color:#212121;font-family:Inter,Segoe UI,Roboto,system-ui}
-        .container-main{max-width:900px;margin:2rem auto;padding:1rem}
-        .section-card{background:#fff;border:1px solid #eee;border-radius:12px;padding:1.25rem}
-        .form-label{font-weight:600}
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--gray-50);
+            color: var(--gray-900);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', system-ui;
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-subtitle {
+            color: var(--gray-700);
+            font-size: 0.9375rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-card {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            padding: 1.5rem 1.75rem;
+        }
+
+        .form-label {
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
     <?php include('../includes/head_dean_navbar.php'); ?>
     <div class="container-main">
+        <h1 class="page-title">My Profile</h1>
+        <p class="page-subtitle">Manage your account information and login details.</p>
         <div class="section-card">
-            <h3>My Profile</h3>
             <?php if ($msg): ?>
-                <div class="alert alert-info"><?= htmlspecialchars($msg) ?></div>
+                <div class="alert alert-info mb-3"><?= htmlspecialchars($msg) ?></div>
             <?php endif; ?>
             <form method="POST">
                 <div class="mb-3">

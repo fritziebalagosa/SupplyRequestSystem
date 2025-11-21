@@ -3,6 +3,159 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 /**
+ * Convert a timestamp to a human-readable time difference (e.g., "2 hours ago")
+ */
+function time_elapsed_string($datetime, $full = false) {
+    $now = new DateTime;
+    $ago = new DateTime($datetime);
+    $diff = $now->diff($ago);
+
+    $diff->w = floor($diff->d / 7);
+    $diff->d -= $diff->w * 7;
+
+    $string = array(
+        'y' => 'year',
+        'm' => 'month',
+        'w' => 'week',
+        'd' => 'day',
+        'h' => 'hour',
+        'i' => 'minute',
+        's' => 'second',
+    );
+    
+    foreach ($string as $k => &$v) {
+        if ($diff->$k) {
+            $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : '');
+        } else {
+            unset($string[$k]);
+        }
+    }
+
+    if (!$full) $string = array_slice($string, 0, 1);
+    return $string ? implode(', ', $string) . ' ago' : 'just now';
+}
+
+/**
+ * Get receipt status for a request
+ */
+function get_receipt_status($conn, $request_id) {
+    $stmt = $conn->prepare("SELECT * FROM release_proofs WHERE request_id = ? ORDER BY created_at DESC LIMIT 1");
+    $stmt->bind_param('i', $request_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $receipt = $result->fetch_assoc();
+    $stmt->close();
+    
+    if ($receipt) {
+        return [
+            'status' => 'received',
+            'received_at' => $receipt['created_at'],
+            'image_path' => $receipt['image_path'],
+            'notes' => $receipt['notes'] ?? ''
+        ];
+    }
+    
+    return [
+        'status' => 'pending',
+        'received_at' => null,
+        'image_path' => null,
+        'notes' => null
+    ];
+}
+
+/**
+ * Send notifications to relevant parties when a request is approved or receipt is submitted
+ */
+function send_approval_notifications($conn, $request_id, $release_date = null, $is_receipt = false) {
+    if (!$conn || !$request_id) return false;
+    
+    // Get request details with requester, dean, and head information
+    $req_query = "SELECT r.*, 
+                 CONCAT(u.first_name, ' ', u.last_name) as requester_name, 
+                 u.email as requester_email,
+                 u.created_by as requester_created_by,
+                 (SELECT id FROM users WHERE id = u.created_by AND role = 'dean' LIMIT 1) as dean_id,
+                 (SELECT id FROM users WHERE id = u.created_by AND role = 'head' LIMIT 1) as head_id,
+                 (SELECT email FROM users WHERE id = u.created_by AND role = 'dean' LIMIT 1) as dean_email,
+                 (SELECT email FROM users WHERE id = u.created_by AND role = 'head' LIMIT 1) as head_email
+                 FROM requests r 
+                 JOIN users u ON r.requester_id = u.id 
+                 WHERE r.id = ?";
+    $stmt = $conn->prepare($req_query);
+    $stmt->bind_param('i', $request_id);
+    $stmt->execute();
+    $request = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if (!$request) return false;
+    
+    // Notification message based on action type
+    if ($is_receipt) {
+        $message = "Request #{$request['request_id']} has been marked as received by the requester.";
+        $link = "/SupplyRequestSystem/admin/view_request.php?id=" . $request_id;
+    } else {
+        $message = "Request #{$request['request_id']} has been approved. " . 
+                  ($release_date ? "Scheduled release date: " . date('F j, Y', strtotime($release_date)) : "");
+        $link = "/SupplyRequestSystem/requesters/view_request.php?id=" . $request_id;
+    }
+    
+    // Get user IDs for notification
+    $user_ids = [];
+    
+    // Always notify the requester
+    if (!empty($request['requester_id'])) {
+        $user_ids[] = $request['requester_id'];
+    }
+    
+    // Notify dean if exists
+    if (!empty($request['dean_id'])) {
+        $user_ids[] = $request['dean_id'];
+    }
+    
+    // Notify head if exists
+    if (!empty($request['head_id'])) {
+        $user_ids[] = $request['head_id'];
+    }
+    
+    // Also notify the admin/supply officer
+    $admin_query = "SELECT id FROM users WHERE role IN ('admin', 'supply_officer')";
+    $admin_result = $conn->query($admin_query);
+    while ($admin = $admin_result->fetch_assoc()) {
+        $user_ids[] = $admin['id'];
+    }
+    
+    // Remove duplicates
+    $user_ids = array_unique($user_ids);
+    
+    // Insert notifications for all relevant users
+    foreach ($user_ids as $user_id) {
+        $notif = $conn->prepare("INSERT INTO notifications (user_id, request_id, message, link, created_at) 
+                               VALUES (?, ?, ?, ?, NOW())");
+        $notif->bind_param('iiss', $user_id, $request_id, $message, $link);
+        $notif->execute();
+        $notif->close();
+        
+        // Uncomment to send email notifications
+        // if ($user_id == $request['requester_id']) {
+        //     $email = $request['requester_email'];
+        // } elseif (isset($request['dean_id']) && $user_id == $request['dean_id']) {
+        //     $email = $request['dean_email'];
+        // } elseif (isset($request['head_id']) && $user_id == $request['head_id']) {
+        //     $email = $request['head_email'];
+        // } else {
+        //     $email = ''; // Admin email would be fetched here
+        // }
+        // 
+        // if (!empty($email)) {
+        //     $subject = $is_receipt ? "Request Marked as Received" : "Request Approved";
+        //     send_email($email, $subject, $message);
+        // }
+    } // Close the foreach loop
+    
+    return true;
+}
+
+/**
  * Get notifications for a user based on role.
  * Returns array of ['id','request_id','message','link','created_at']
  */

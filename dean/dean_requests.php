@@ -140,65 +140,229 @@ $stmt2->close();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Dean - Requests</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Requests - WMSU OSRS</title>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+	<style>
+		:root {
+			--red-primary: #dc3545;
+			--red-dark: #c82333;
+			--red-light: #f8d7da;
+			--gray-50: #fafafa;
+			--gray-100: #f5f5f5;
+			--gray-200: #eeeeee;
+			--gray-300: #e0e0e0;
+			--gray-700: #616161;
+			--gray-900: #212121;
+		}
+
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+			background-color: var(--gray-50);
+			color: var(--gray-900);
+			line-height: 1.6;
+		}
+
+		.container-main {
+			max-width: 1400px;
+			margin: 0 auto;
+			padding: 2rem 1.5rem;
+		}
+
+		.page-title {
+			font-size: 1.75rem;
+			font-weight: 600;
+			color: var(--gray-900);
+			letter-spacing: -0.5px;
+			margin-bottom: 0.25rem;
+		}
+
+		.page-subtitle {
+			color: var(--gray-700);
+			font-size: 0.9375rem;
+			margin-bottom: 2rem;
+		}
+
+		.section-card {
+			background: white;
+			border-radius: 12px;
+			border: 1px solid var(--gray-200);
+			overflow: hidden;
+			margin-bottom: 2rem;
+		}
+
+		.section-header {
+			padding: 1.25rem 1.5rem;
+			border-bottom: 1px solid var(--gray-200);
+			background: white;
+		}
+
+		.section-header h2 {
+			font-size: 1.125rem;
+			font-weight: 600;
+			color: var(--gray-900);
+			margin: 0;
+		}
+
+		.section-body {
+			padding: 0;
+		}
+
+		.table-minimal {
+			margin: 0;
+			width: 100%;
+		}
+
+		.table-minimal thead th {
+			background: var(--gray-50);
+			color: var(--gray-700);
+			font-weight: 600;
+			font-size: 0.75rem;
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+			padding: 1rem 1.5rem;
+			border: none;
+			border-bottom: 1px solid var(--gray-200);
+			text-align: left;
+		}
+
+		.table-minimal tbody td {
+			padding: 1rem 1.5rem;
+			color: var(--gray-900);
+			font-size: 0.9375rem;
+			border: none;
+			border-bottom: 1px solid var(--gray-100);
+			vertical-align: middle;
+		}
+
+		.table-minimal tbody tr:last-child td {
+			border-bottom: none;
+		}
+
+		.table-minimal tbody tr:hover {
+			background-color: var(--gray-50);
+		}
+
+		.empty-state {
+			text-align: center;
+			padding: 2rem 1.5rem;
+			color: var(--gray-700);
+		}
+
+		.empty-state i {
+			font-size: 2.5rem;
+			color: var(--gray-300);
+			margin-bottom: 0.75rem;
+		}
+
+		.empty-state p {
+			margin: 0;
+			font-size: 0.9375rem;
+		}
+	</style>
 </head>
-<body class="container py-4">
-    <?php include('../includes/head_dean_navbar.php'); ?>
 
-    <h2>Requests Awaiting Your Review</h2>
-    <?php if ($flash): ?>
-        <div class="alert alert-info"><?= htmlspecialchars($flash) ?></div>
-    <?php endif; ?>
+<body>
+	<?php include('../includes/head_dean_navbar.php'); ?>
 
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Request ID</th>
-                <th>Items</th>
-                <th>Requester</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-        <?php if (empty($results)): ?>
-            <tr><td colspan="6" class="text-center">No requests pending your review.</td></tr>
-        <?php else: foreach ($results as $r): ?>
-            <tr>
-                <td><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></td>
-                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-                <td><?= htmlspecialchars(ucfirst($r['status'])) ?></td>
-                <td><?= htmlspecialchars($r['created_at']) ?></td>
-                <td>
-                    <a class="btn btn-sm btn-primary" href="view_requests.php?id=<?= $r['id'] ?>">View</a>
-                </td>
-            </tr>
-        <?php endforeach; endif; ?>
-        </tbody>
-    </table>
-    
-    <h3 class="mt-4">Approved & Ready for Release</h3>
-    <table class="table table-striped">
-        <thead><tr><th>Request ID</th><th>Items</th><th>Requester</th><th>Date</th><th>Action</th></tr></thead>
-        <tbody>
-        <?php if (empty($approved)): ?>
-            <tr><td colspan="5" class="text-center">No approved requests ready for release.</td></tr>
-        <?php else: foreach ($approved as $r): ?>
-            <tr>
-                <td><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></td>
-                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-                <td><?= htmlspecialchars($r['created_at']) ?></td>
-                <td><a class="btn btn-sm btn-primary" href="view_requests.php?id=<?= $r['id'] ?>">View</a></td>
-            </tr>
-        <?php endforeach; endif; ?>
-        </tbody>
-    </table>
+	<div class="container-main">
+		<h1 class="page-title">Requests Awaiting Your Review</h1>
+		<p class="page-subtitle">Review and manage requests for your college/office.</p>
+		<?php if ($flash): ?>
+			<div class="alert alert-info"><?= htmlspecialchars($flash) ?></div>
+		<?php endif; ?>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+		<div class="section-card">
+			<div class="section-header">
+				<h2>Pending Requests</h2>
+			</div>
+			<div class="section-body">
+				<?php if (empty($results)): ?>
+					<div class="empty-state">
+						<i class="bi bi-inbox"></i>
+						<p>No requests pending your review.</p>
+					</div>
+				<?php else: ?>
+					<div class="table-responsive">
+						<table class="table table-minimal">
+							<thead>
+								<tr>
+									<th>Request ID</th>
+									<th>Items</th>
+									<th>Requester</th>
+									<th>Status</th>
+									<th>Date</th>
+									<th>Action</th>
+								</tr>
+							</thead>
+							<tbody>
+							<?php foreach ($results as $r): ?>
+								<tr>
+									<td><strong>#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></strong></td>
+									<td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+									<td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+									<td><?= htmlspecialchars(ucfirst($r['status'])) ?></td>
+									<td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+									<td>
+										<a class="btn btn-sm btn-primary" href="view_requests.php?id=<?= $r['id'] ?>">View</a>
+									</td>
+								</tr>
+							<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				<?php endif; ?>
+			</div>
+		</div>
+		
+		<div class="section-card">
+			<div class="section-header">
+				<h2>Approved &amp; Ready for Release</h2>
+			</div>
+			<div class="section-body">
+				<?php if (empty($approved)): ?>
+					<div class="empty-state">
+						<i class="bi bi-inbox"></i>
+						<p>No approved requests ready for release.</p>
+					</div>
+				<?php else: ?>
+					<div class="table-responsive">
+						<table class="table table-minimal">
+							<thead>
+								<tr>
+									<th>Request ID</th>
+									<th>Items</th>
+									<th>Requester</th>
+									<th>Date</th>
+									<th>Action</th>
+								</tr>
+							</thead>
+							<tbody>
+							<?php foreach ($approved as $r): ?>
+								<tr>
+									<td><strong>#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></strong></td>
+									<td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+									<td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+									<td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+									<td><a class="btn btn-sm btn-primary" href="view_requests.php?id=<?= $r['id'] ?>">View</a></td>
+								</tr>
+							<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				<?php endif; ?>
+			</div>
+		</div>
+	</div>
+	
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

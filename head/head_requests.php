@@ -101,12 +101,17 @@ $flash = $_SESSION['flash_message'] ?? '';
 unset($_SESSION['flash_message']);
 
 // fetch pending requests for this head
-$stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
+$stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, rs.release_date, u.first_name, u.last_name,
+                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
+                        rp.created_at as receipt_date,
+                        ra.comment as release_comment
                         FROM requests r
                         JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
+                        LEFT JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved'
                         WHERE r.college_office_id = ? AND r.status = 'pending_head'
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
@@ -115,12 +120,17 @@ $stmt->execute();
 $results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 // fetch approved requests for this head (ready for release)
-$stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
+$stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, rs.release_date, u.first_name, u.last_name,
+                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
+                        rp.created_at as receipt_date,
+                        ra.comment as release_comment
                         FROM requests r
                         JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
+                        LEFT JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved'
                         WHERE r.college_office_id = ? AND r.status = 'approved'
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
@@ -166,6 +176,7 @@ $stmt2->close();
         .items-list { color:var(--gray-700); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .badge-minimal { display:inline-flex; align-items:center; padding:.35rem .75rem; border-radius:6px; font-size:.8125rem; font-weight:500; border:1px solid; }
         .badge-pending { background:#fff3cd; color:#856404; border-color:#ffeaa7; }
+        .badge-completed { background:#d1ecf1; color:#0c5460; border-color:#bee5eb; }
         .btn-minimal { padding:.4rem .875rem; border-radius:6px; font-weight:500; font-size:.875rem; border:1px solid; transition:.2s; text-decoration:none; display:inline-flex; align-items:center; gap:.375rem; }
         .btn-action-view { background:#d1ecf1; color:#0c5460; border-color:#bee5eb; }
         .btn-action-view:hover { background:#bee5eb; border-color:#17a2b8; color:#0c5460; }
@@ -206,6 +217,8 @@ $stmt2->close();
                                     <th>Requester</th>
                                     <th>Status</th>
                                     <th>Date Submitted</th>
+                                    <th>Delivery Date</th>
+                                    <th>Receipt Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -226,6 +239,26 @@ $stmt2->close();
                                             </span>
                                         </td>
                                         <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                        <td>
+                                            <?php if ($r['release_date']): ?>
+                                                <span style="color: var(--gray-700); font-size: 0.875rem;">
+                                                    <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($r['receipt_date']): ?>
+                                                <span class="badge-minimal badge-completed">
+                                                    <i class="bi bi-check-circle-fill"></i> Received
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge-minimal badge-pending">
+                                                    <i class="bi bi-clock-history"></i> Pending
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td>
                                             <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
                                                 <i class="bi bi-eye"></i> View Details
@@ -260,6 +293,8 @@ $stmt2->close();
                                     <th>Items</th>
                                     <th>Requester</th>
                                     <th>Date Approved</th>
+                                    <th>Delivery Date</th>
+                                    <th>Receipt Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -274,6 +309,26 @@ $stmt2->close();
                                         </td>
                                         <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
                                         <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                        <td>
+                                            <?php if ($r['release_date']): ?>
+                                                <span style="color: var(--gray-700); font-size: 0.875rem;">
+                                                    <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($r['receipt_date']): ?>
+                                                <span class="badge-minimal badge-completed">
+                                                    <i class="bi bi-check-circle-fill"></i> Received
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge-minimal badge-pending">
+                                                    <i class="bi bi-clock-history"></i> Pending
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td>
                                             <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
                                                 <i class="bi bi-eye"></i> View Details

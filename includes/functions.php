@@ -205,7 +205,7 @@ function get_notifications($conn, $user_id, $role, $college_office_id = null, $l
 				'id' => $row['id'],
 				'request_id' => $row['request_id'],
 				'message' => $msg,
-				'link' => '/SupplyRequestSystem/' . ($role === 'requester' ? 'requesters/view_request.php?id=' : (($role==='dean' || $role==='head') ? 'dean/view_requests.php?id=' : 'officer/view_request.php?id=')) . $row['id'],
+				'link' => '/SupplyRequestSystem/' . ($role === 'requester' ? 'requesters/view_request.php?id=' : ($role === 'head' ? 'head/view_request.php?id=' : ($role === 'dean' ? 'dean/view_requests.php?id=' : 'officer/view_request.php?id='))) . $row['id'],
 				'created_at' => $row['created_at']
 			];
 		}
@@ -241,7 +241,7 @@ function get_notifications($conn, $user_id, $role, $college_office_id = null, $l
 				'id' => $a['request_id'],
 				'request_id' => $a['rid'],
 				'message' => $msg,
-				'link' => '/SupplyRequestSystem/' . ($role === 'requester' ? 'requesters/view_request.php?id=' : (($role==='dean' || $role==='head') ? 'dean/view_requests.php?id=' : 'officer/view_request.php?id=')) . $a['request_id'],
+				'link' => '/SupplyRequestSystem/' . ($role === 'requester' ? 'requesters/view_request.php?id=' : ($role === 'head' ? 'head/view_request.php?id=' : ($role === 'dean' ? 'dean/view_requests.php?id=' : 'officer/view_request.php?id='))) . $a['request_id'],
 				'created_at' => $a['created_at']
 			];
 		}

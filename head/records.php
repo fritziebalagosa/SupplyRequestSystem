@@ -27,12 +27,16 @@ if (!$college_office_id) die('Office not configured.');
 // fetch all requests for this office
 $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
                         GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
-                        cu.id as creator_id, cu.first_name as creator_fn, cu.last_name as creator_ln, cu.role as creator_role
+                        cu.id as creator_id, cu.first_name as creator_fn, cu.last_name as creator_ln, cu.role as creator_role,
+                        rp.created_at as receipt_date,
+                        rs.release_date
                         FROM requests r
                         JOIN users u ON r.requester_id = u.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
                         LEFT JOIN users cu ON u.created_by = cu.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
                         WHERE r.college_office_id = ?
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
@@ -77,6 +81,34 @@ $stmt->close();
         .badge-pending{background:#fff3cd;color:#856404;border-color:#ffeaa7}
         .empty-state{text-align:center;padding:3rem 1.5rem;color:var(--gray-700)}
         .empty-state i{font-size:3rem;color:#e0e0e0;margin-bottom:1rem}
+        
+        /* Button Styles */
+        .btn-minimal{
+            padding:0.625rem 1.25rem;
+            border-radius:8px;
+            font-weight:500;
+            font-size:.9375rem;
+            border:none;
+            transition:all 0.2s ease;
+            display:inline-flex;
+            align-items:center;
+            gap:0.5rem;
+            text-decoration:none;
+        }
+        .btn-action-view{
+            background-color:#d1ecf1;
+            color:#0c5460;
+            border:1px solid #bee5eb;
+        }
+        .btn-action-view:hover{
+            background-color:#bee5eb;
+            border-color:#17a2b8;
+            color:#0c5460;
+            transform:translateY(-1px);
+        }
+        .btn-action-view i{
+            font-size:1rem;
+        }
     </style>
 </head>
 <body>
@@ -104,6 +136,8 @@ $stmt->close();
                                 <th>Created By</th>
                                 <th>Status</th>
                                 <th>Date Submitted</th>
+                                <th>Delivery Date</th>
+                                <th>Receipt Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -134,6 +168,26 @@ $stmt->close();
                                 </td>
                                 <td><span class="badge-minimal <?= $badge_class ?>"><?php if(strpos($status,'approved')!==false):?><i class="bi bi-check-circle"></i><?php elseif(strpos($status,'rejected')!==false):?><i class="bi bi-x-circle"></i><?php elseif(strpos($status,'completed')!==false):?><i class="bi bi-check-circle-fill"></i><?php elseif(strpos($status,'returned')!==false):?><i class="bi bi-arrow-return-left"></i><?php else:?><i class="bi bi-clock-history"></i><?php endif; ?> <?= htmlspecialchars($status_text) ?></span></td>
                                 <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                <td>
+                                    <?php if ($r['release_date']): ?>
+                                        <span style="color: var(--gray-700); font-size: 0.875rem;">
+                                            <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($r['receipt_date']): ?>
+                                        <span class="badge-minimal badge-completed">
+                                            <i class="bi bi-check-circle-fill"></i> Received
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge-minimal badge-pending">
+                                            <i class="bi bi-clock-history"></i> Pending
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>"><i class="bi bi-eye"></i> View</a>
                                 </td>

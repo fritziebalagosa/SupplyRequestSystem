@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Migrate Release Dates</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        #result { margin-top: 20px; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Migrate Release Dates</h1>
+    <p>This will copy release dates from the old format (request_actions.comment) to the new release_date column.</p>
+    <button onclick="migrate()">Migrate Release Dates</button>
+    <div id="result"></div>
+
+    <script>
+        function migrate() {
+            document.getElementById('result').innerHTML = '<p>Migrating... Please wait...</p>';
+            
+            fetch('migrate_release_dates.php')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('result').innerHTML = '<h3>Migration Result:</h3><pre>' + data + '</pre>';
+                })
+                .catch(error => {
+                    document.getElementById('result').innerHTML = '<h3>Error:</h3><pre>' + error + '</pre>';
+                });
+        }
+    </script>
+</body>
+</html>

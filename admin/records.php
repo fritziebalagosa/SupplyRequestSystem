@@ -76,14 +76,23 @@ $comp_res = $comp_stmt->get_result();
     .empty-state{text-align:center;padding:3rem 1.5rem;color:#6b7280}
     .empty-state i{font-size:3rem;color:#9ca3af;margin-bottom:1rem;display:block}
     .empty-state p{margin:0;font-size:.9375rem}
+    .page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+    .page-actions{display:flex;gap:0.5rem}
   </style>
 </head>
 <body>
 <?php include('../includes/admin_sidebar.php'); ?>
 <div class="container-main">
-  <h3 class="page-title mb-3"><i class="bi bi-clipboard-check"></i> Records</h3>
+  <div class="page-header" data-print-date="<?php echo date('F j, Y, g:i A'); ?>">
+    <h3 class="page-title mb-3"><i class="bi bi-clipboard-check"></i> Records</h3>
+    <div class="page-actions">
+      <button class="btn-minimal btn-secondary-minimal" onclick="window.print()">
+        <i class="bi bi-printer"></i> Print Document
+      </button>
+    </div>
+  </div>
 
-  <div class="section-card mb-4">
+  <div class="section-card mb-4" data-section-title="For Release">
     <div class="table-responsive">
       <table class="table table-minimal">
           <thead>
@@ -141,7 +150,7 @@ $comp_res = $comp_stmt->get_result();
     </div>
   </div>
 
-  <div class="section-card">
+  <div class="section-card" data-section-title="Completed Records">
     <div class="table-responsive">
       <table class="table table-minimal">
           <thead>
@@ -188,5 +197,292 @@ $comp_res = $comp_stmt->get_result();
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<style>
+@media print {
+    /* Hide all navigation and UI elements */
+    .admin-sidebar,
+    .page-actions,
+    .btn,
+    nav,
+    footer,
+    .toggle-btn,
+    .brand,
+    .sidebar-footer {
+        display: none !important;
+    }
+    
+    /* Document styling */
+    body {
+        background: white !important;
+        color: black !important;
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 12pt;
+        line-height: 1.4;
+        margin: 0;
+        padding: 0;
+    }
+    
+    .container-main {
+        margin: 0 !important;
+        padding: 0.1in !important;
+        max-width: 8.5in !important;
+        margin-left: 0 !important;
+        padding-top: 0.1in !important;
+    }
+    
+    /* Document header */
+    .page-header {
+        text-align: center !important;
+        margin-bottom: 30px !important;
+        display: block !important;
+        border-bottom: 2px solid #000 !important;
+        padding-bottom: 20px !important;
+    }
+    
+    .page-title {
+        font-size: 24pt !important;
+        color: black !important;
+        margin-bottom: 0 !important;
+        font-weight: bold !important;
+        text-transform: uppercase !important;
+        letter-spacing: 2px !important;
+    }
+    
+    /* Hide web tables */
+    .section-card {
+        border: none !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        page-break-inside: avoid;
+        display: none !important;
+    }
+    
+    .table {
+        display: none !important;
+    }
+    
+    /* Document footer info */
+    .page-header::after {
+        content: "Printed on: " attr(data-print-date) " | Page: 1";
+        display: block;
+        font-size: 10pt;
+        margin-top: 10px;
+        color: #666;
+        text-align: right;
+    }
+    
+    /* Create custom document table */
+    @page {
+        margin: 0.5in;
+    }
+}
+</style>
+
+<!-- Document Content for Print -->
+<div class="print-document" style="display: none;">
+    <div class="document-header">
+        <h1>REQUEST RECORDS</h1>
+        <p>Western Mindanao State University</p>
+        <p>Office Supply Request System</p>
+        <p>Generated on: <?php echo date('F j, Y'); ?></p>
+    </div>
+    
+    <div class="document-content">
+        <h2>For Release</h2>
+        <table class="document-table">
+            <thead>
+                <tr>
+                    <th>Request ID</th>
+                    <th>Requester</th>
+                    <th>Scheduled Release</th>
+                    <th>Date Approved</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php 
+                // Reset and re-run the query for print
+                $for_stmt = $conn->prepare($for_sql);
+                if ($admin_id) {
+                    $for_stmt->bind_param('i', $admin_id);
+                }
+                $for_stmt->execute();
+                $for_print_res = $for_stmt->get_result();
+                
+                if ($for_print_res && $for_print_res->num_rows > 0): 
+                    while($row = $for_print_res->fetch_assoc()): 
+                        $dispRel = $row['rel_date'];
+                        if (!$dispRel && !empty($row['appr_comment'])) {
+                            if (preg_match('/Release date:\s*(\d{4}-\d{2}-\d{2})/i', $row['appr_comment'], $m)) {
+                                $dispRel = $m[1];
+                            }
+                        }
+                        if (!$dispRel) { continue; }
+                ?>
+                <tr>
+                    <td><?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></td>
+                    <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
+                    <td><?= htmlspecialchars(date('M d, Y', strtotime($dispRel))) ?> 9:00 AM</td>
+                    <td><?= htmlspecialchars(date('M d, Y', strtotime($row['created_at']))) ?></td>
+                    <td>FOR RELEASE</td>
+                </tr>
+                <?php 
+                    endwhile; 
+                else: 
+                ?>
+                <tr>
+                    <td colspan="5" style="text-align: center; font-style: italic;">No requests pending release.</td>
+                </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        
+        <h2 style="margin-top: 30px;">Completed Records</h2>
+        <table class="document-table">
+            <thead>
+                <tr>
+                    <th>Request ID</th>
+                    <th>Requester</th>
+                    <th>Release Date & Time</th>
+                    <th>Completed On</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php 
+                // Reset and re-run the query for print
+                $comp_stmt = $conn->prepare($comp_sql);
+                if ($admin_id) {
+                    $comp_stmt->bind_param('i', $admin_id);
+                }
+                $comp_stmt->execute();
+                $comp_print_res = $comp_stmt->get_result();
+                
+                if ($comp_print_res && $comp_print_res->num_rows > 0): 
+                    while($row = $comp_print_res->fetch_assoc()): 
+                ?>
+                <tr>
+                    <td><?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></td>
+                    <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
+                    <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?> 9:00 AM</td>
+                    <td><?= htmlspecialchars($row['confirmed_at'] ? date('M d, Y', strtotime($row['confirmed_at'])) : '-') ?></td>
+                    <td>COMPLETED</td>
+                </tr>
+                <?php 
+                    endwhile; 
+                else: 
+                ?>
+                <tr>
+                    <td colspan="5" style="text-align: center; font-style: italic;">No completed records.</td>
+                </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        
+        <div class="document-summary">
+            <h3>Summary</h3>
+            <p>Pending Release: <?php echo $for_print_res->num_rows; ?> requests</p>
+            <p>Completed: <?php echo $comp_print_res->num_rows; ?> requests</p>
+            <p>Total Processed: <?php echo $for_print_res->num_rows + $comp_print_res->num_rows; ?> requests</p>
+            <p>Generated by: System Administrator</p>
+        </div>
+    </div>
+</div>
+
+<style>
+.print-document {
+    font-family: 'Times New Roman', Times, serif;
+    line-height: 1.4;
+}
+
+.document-header {
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 20px;
+    margin-top: 0;
+}
+
+.document-header h1 {
+    font-size: 24pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin: 0 0 10px 0;
+}
+
+.document-header p {
+    margin: 5px 0;
+    font-size: 12pt;
+}
+
+.document-content h2 {
+    font-size: 16pt;
+    font-weight: bold;
+    margin: 20px 0 15px 0;
+    text-transform: uppercase;
+    border-bottom: 1px solid #000;
+    padding-bottom: 5px;
+}
+
+.document-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 10pt;
+}
+
+.document-table th,
+.document-table td {
+    border: 1px solid #000;
+    padding: 8px;
+    text-align: left;
+}
+
+.document-table th {
+    background-color: #f5f5f5;
+    font-weight: bold;
+    text-align: center;
+}
+
+.document-table td {
+    text-align: center;
+}
+
+.document-table td:first-child {
+    text-align: left;
+}
+
+.document-table td:nth-child(2) {
+    text-align: left;
+}
+
+.document-summary {
+    margin-top: 30px;
+    padding-top: 15px;
+    border-top: 1px solid #000;
+}
+
+.document-summary h3 {
+    font-size: 14pt;
+    font-weight: bold;
+    margin: 0 0 10px 0;
+}
+
+.document-summary p {
+    margin: 5px 0;
+    font-size: 11pt;
+}
+
+@media print {
+    .print-document {
+        display: block !important;
+    }
+    
+    .container-main > *:not(.print-document) {
+        display: none !important;
+    }
+}
+</style>
 </body>
 </html>

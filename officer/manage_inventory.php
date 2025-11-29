@@ -82,9 +82,304 @@ unset($_SESSION['flash_message']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Officer - Inventory Monitor</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="../styles/admin_inventory.css">
+    <style>
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --red-light: #f8d7da;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        /* Page Header */
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: var(--gray-700);
+            font-size: 0.9375rem;
+            margin-bottom: 0;
+        }
+
+        /* Alert Messages */
+        .alert {
+            border-radius: 8px;
+            border: none;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        /* Filter Card */
+        .filter-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .filter-label {
+            font-size: 0.875rem;
+            color: var(--gray-700);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        /* Form Elements */
+        .form-control-minimal,
+        .form-select-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+        }
+
+        .form-control-minimal:focus,
+        .form-select-minimal:focus {
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.1);
+            outline: none;
+        }
+
+        /* Buttons */
+        .btn-minimal {
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+
+        .btn-primary-minimal {
+            background-color: var(--red-primary);
+            color: white;
+        }
+
+        .btn-primary-minimal:hover {
+            background-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
+        /* Tables */
+        .table-minimal {
+            margin: 0;
+            width: 100%;
+        }
+
+        .table-minimal thead th {
+            background: var(--gray-50);
+            color: var(--gray-700);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-200);
+            text-align: left;
+        }
+
+        .table-minimal tbody td {
+            padding: 1rem 1.5rem;
+            color: var(--gray-900);
+            font-size: 0.9375rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-100);
+            vertical-align: middle;
+        }
+
+        .table-minimal tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-minimal tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+
+        .table-minimal tbody tr.low-stock {
+            background-color: #fff8e1;
+        }
+
+        .table-minimal tbody tr.low-stock:hover {
+            background-color: #ffecb3;
+        }
+
+        /* Stock Number */
+        .stock-number {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        /* Badges */
+        .badge-minimal {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            border: 1px solid;
+            gap: 0.375rem;
+        }
+
+        .badge-success {
+            background-color: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .badge-danger {
+            background-color: var(--red-light);
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .btn-action {
+            padding: 0.4rem 0.875rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            border: 1px solid;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-action:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-action-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .btn-action-warning:hover:not(:disabled) {
+            background: #ffeaa7;
+            border-color: #ffc107;
+            transform: translateY(-1px);
+        }
+
+        /* Empty State */
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--gray-700);
+        }
+
+        .empty-state i {
+            font-size: 2rem;
+            display: block;
+            margin-bottom: 1rem;
+            color: #adb5bd;
+        }
+
+        /* Stock Status Indicators */
+        .stock-low {
+            color: #b45309;
+            font-weight: 600;
+        }
+
+        .stock-none {
+            color: #b91c1c;
+            font-weight: 700;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container-main {
+                padding: 1.5rem 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .filter-card {
+                padding: 1.25rem;
+            }
+
+            .table-minimal thead th,
+            .table-minimal tbody td {
+                padding: 0.75rem 1rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
 </head>
 <body>
 <?php include('../includes/officer_navbar.php'); ?>
@@ -92,7 +387,7 @@ unset($_SESSION['flash_message']);
 <div class="container-main">
     <div class="page-header">
         <h1 class="page-title">Inventory Monitor</h1>
-        <p class="text-muted">View stock levels and send low-stock alerts to the supply head.</p>
+        <p class="page-subtitle">View stock levels and send low-stock alerts to the supply head.</p>
     </div>
 
     <?php if ($flash): ?>

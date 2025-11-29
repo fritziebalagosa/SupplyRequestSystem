@@ -15,7 +15,7 @@ unset($_SESSION['flash_message']);
 // Dean users only fetch pending_dean requests
 $college_office_id = $_SESSION['college_office_id'];
 $user_id = $_SESSION['user_id'];
-$status_to_fetch = 'pending_dean';
+$status_to_fetch = ['pending_dean', 'pending_head', 'pending_officer'];
 
 // Handle post actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['request_id'])) {
@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
     $request_db_id = $request_id;
 
     $may_act = false;
-    if ($request && $request['status'] === $status_to_fetch) {
+    if ($request && in_array($request['status'], $status_to_fetch)) {
         $may_act = true;
     }
     if (!$may_act) {
@@ -101,44 +101,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
     exit;
 }
 
-// fetch pending requests for this dean, include item names instead of request title
-$stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, rs.release_date, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
-                        rp.created_at as receipt_date,
-                        ra.comment as release_comment
+// fetch pending requests for this dean, include item names// Fetch pending requests for dean's college/office
+$status_to_fetch = ['pending_dean', 'pending_head', 'pending_officer'];
+$status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
+$sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
+                        rs.release_date, rp.created_at as receipt_date,
+                        COALESCE(GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', '), 'No items specified') AS items
                         FROM requests r
-                        JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN users u ON r.requester_id = u.id
                         LEFT JOIN release_schedule rs ON rs.request_id = r.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
-                        LEFT JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved'
-                        WHERE r.college_office_id = ? AND r.status = ?
+                        WHERE r.college_office_id = ? AND r.status IN ($status_placeholders)
                         GROUP BY r.id
-                        ORDER BY r.created_at DESC");
-if (!$stmt) {
-    die('Failed to prepare statement: ' . $conn->error);
-}
-$stmt->bind_param("is", $college_office_id, $status_to_fetch);
+                        ORDER BY r.created_at DESC";
+$stmt = $conn->prepare($sql);
+$param_types = 'i' . str_repeat('s', count($status_to_fetch)); // college_office_id is int, statuses are strings
+$stmt->bind_param($param_types, $college_office_id, ...$status_to_fetch);
 $stmt->execute();
 $results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
 // Also fetch approved requests to notify dean when scheduled for release
-$stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, rs.release_date, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
-                        rp.created_at as receipt_date,
-                        ra.comment as release_comment
+$stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
+                        rs.release_date, rp.created_at as receipt_date,
+                        COALESCE(GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', '), 'No items specified') AS items
                         FROM requests r
-                        JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN users u ON r.requester_id = u.id
                         LEFT JOIN release_schedule rs ON rs.request_id = r.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
-                        LEFT JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved'
                         WHERE r.college_office_id = ? AND r.status = 'approved'
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
-        $stmt2->bind_param("i", $college_office_id);
+$stmt2->bind_param("i", $college_office_id);
 $stmt2->execute();
 $approved = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt2->close();
@@ -385,6 +383,12 @@ $stmt2->close();
 			background-color: var(--gray-50);
 		}
 
+		.request-id {
+			font-family: 'Courier New', monospace;
+			font-weight: 600;
+			color: var(--red-primary);
+		}
+
 		/* Buttons */
 		.btn-minimal {
 			padding: 0.4rem 0.875rem;
@@ -520,50 +524,35 @@ $stmt2->close();
 					<table class="table table-minimal">
 						<thead>
 							<tr>
-								<th data-label="Request ID">Request ID</th>
-								<th data-label="Items">Items</th>
-								<th data-label="Requester">Requester</th>
-								<th data-label="Status">Status</th>
-								<th data-label="Date">Date</th>
-								<th data-label="Delivery Date">Delivery Date</th>
-								<th data-label="Receipt Status">Receipt Status</th>
-								<th data-label="Action">Action</th>
+								<th>Request ID</th>
+								<th>Items</th>
+								<th>Requester</th>
+								<th>Status</th>
+								<th>Date</th>
+								<th>Delivery Date</th>
+								<th>Receipt Status</th>
+								<th>Actions</th>
 							</tr>
 						</thead>
 						<tbody>
 						<?php foreach ($results as $r): ?>
 							<tr>
-								<td data-label="Request ID"><strong>#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></strong></td>
-								<td data-label="Items"><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-								<td data-label="Requester"><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-								<td data-label="Status">
-									<span class="badge-minimal badge-pending">
-										<i class="bi bi-clock-history"></i>
-										<?= htmlspecialchars(ucfirst(str_replace('_', ' ', $r['status']))) ?>
-									</span>
-								</td>
-								<td data-label="Date"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
-								<td data-label="Delivery Date">
-									<?php if ($r['release_date']): ?>
-										<span style="color: var(--gray-700); font-size: 0.875rem;">
-											<i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
-										</span>
-									<?php else: ?>
-										<span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
-									<?php endif; ?>
-								</td>
-								<td data-label="Receipt Status">
-									<?php if ($r['receipt_date']): ?>
-										<span class="badge-minimal badge-completed">
-											<i class="bi bi-check-circle-fill"></i> Received
-										</span>
-									<?php else: ?>
-										<span class="badge-minimal badge-pending">
-											<i class="bi bi-clock-history"></i> Pending
-										</span>
-									<?php endif; ?>
-								</td>
-								<td data-label="Action">
+								<td><span class="request-id"><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span></td>
+								<td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+								<td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+								<td><span class="badge-minimal badge-pending"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $r['status']))) ?></span></td>
+								<td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+								                                <td>
+                                    <?php if ($r['release_date']): ?>
+                                        <span style="color: var(--gray-700); font-size: 0.875rem;">
+                                            <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                                    <?php endif; ?>
+                                </td>
+								<td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
+								<td>
 									<a class="btn-minimal btn-action-view" href="view_requests.php?id=<?= $r['id'] ?>">
 										<i class="bi bi-eye"></i> View
 									</a>
@@ -593,43 +582,25 @@ $stmt2->close();
 					<table class="table table-minimal">
 						<thead>
 							<tr>
-								<th data-label="Request ID">Request ID</th>
-								<th data-label="Items">Items</th>
-								<th data-label="Requester">Requester</th>
-								<th data-label="Date">Date</th>
-								<th data-label="Delivery Date">Delivery Date</th>
-								<th data-label="Receipt Status">Receipt Status</th>
-								<th data-label="Action">Action</th>
+								<th>Request ID</th>
+								<th>Items</th>
+								<th>Requester</th>
+								<th>Date</th>
+								<th>Delivery Date</th>
+								<th>Receipt Status</th>
+								<th>Actions</th>
 							</tr>
 						</thead>
 						<tbody>
 						<?php foreach ($approved as $r): ?>
 							<tr>
-								<td data-label="Request ID"><strong>#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></strong></td>
-								<td data-label="Items"><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-								<td data-label="Requester"><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-								<td data-label="Date"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
-								<td data-label="Delivery Date">
-									<?php if ($r['release_date']): ?>
-										<span style="color: var(--gray-700); font-size: 0.875rem;">
-											<i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
-										</span>
-									<?php else: ?>
-										<span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
-									<?php endif; ?>
-								</td>
-								<td data-label="Receipt Status">
-									<?php if ($r['receipt_date']): ?>
-										<span class="badge-minimal badge-completed">
-											<i class="bi bi-check-circle-fill"></i> Received
-										</span>
-									<?php else: ?>
-										<span class="badge-minimal badge-pending">
-											<i class="bi bi-clock-history"></i> Pending
-										</span>
-									<?php endif; ?>
-								</td>
-								<td data-label="Action">
+								<td><span class="request-id"><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span></td>
+								<td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+								<td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+								<td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+								<td><?= $r['release_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['release_date']))) : '<span class="badge-minimal badge-pending">No Schedule</span>' ?></td>
+								<td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
+								<td>
 									<a class="btn-minimal btn-action-view" href="view_requests.php?id=<?= $r['id'] ?>">
 										<i class="bi bi-eye"></i> View
 									</a>

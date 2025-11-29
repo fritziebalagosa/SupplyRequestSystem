@@ -550,6 +550,11 @@ $csrf_token = generate_csrf_token();
             $schedule = $schedule_stmt->get_result()->fetch_assoc();
             $schedule_stmt->close();
             
+            // Add default time for display
+            if ($schedule && $schedule['release_date']) {
+                $schedule['release_time'] = '09:00:00';
+            }
+            
             if ($receipt): ?>
                 <div class="info-row">
                     <div class="info-label">Delivery Date</div>
@@ -557,10 +562,13 @@ $csrf_token = generate_csrf_token();
                         <?php if ($schedule && $schedule['release_date']): ?>
                             <span style="color: var(--gray-700); font-size: 0.9375rem;">
                                 <i class="bi bi-calendar-check"></i> Scheduled for <?= htmlspecialchars(date('M d, Y', strtotime($schedule['release_date']))) ?>
+                                <?php if ($schedule['release_time']): ?>
+                                    at <?= htmlspecialchars(date('g:i A', strtotime($schedule['release_time']))) ?>
+                                <?php endif; ?>
                             </span>
                         <?php elseif ($receipt): ?>
                             <span style="color: var(--gray-700); font-size: 0.9375rem;">
-                                <i class="bi bi-truck"></i> Delivered on <?= htmlspecialchars(date('M d, Y', strtotime($receipt['created_at']))) ?>
+                                <i class="bi bi-truck"></i> Delivered on <?= htmlspecialchars(date('M d, Y g:i A', strtotime($receipt['created_at']))) ?>
                             </span>
                         <?php else: ?>
                             <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>

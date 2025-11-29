@@ -55,7 +55,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $priorities = is_array($prio_raw) ? $prio_raw : [(string)$prio_raw];
 
     $description = trim($_POST['description'] ?? '');
-    $created_at = date('Y-m-d H:i:s');
 
     // Handle attachment upload
     $attachment = null;
@@ -115,8 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $conn->begin_transaction();
         try {
             $stmt = $conn->prepare("INSERT INTO requests (request_id, requester_id, college_office_id, description, attachment, status, created_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("siissss", $formatted_request_id, $requester_id, $college_office_id, $description, $attachment, $status, $created_at);
+                                    VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            $stmt->bind_param("siisss", $formatted_request_id, $requester_id, $college_office_id, $description, $attachment, $status);
             if (!$stmt->execute()) { throw new Exception($stmt->error); }
             $request_id = $stmt->insert_id;
             $stmt->close();

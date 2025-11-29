@@ -127,13 +127,14 @@ function send_approval_notifications($conn, $request_id, $release_date = null, $
     // Remove duplicates
     $user_ids = array_unique($user_ids);
     
-    // Insert notifications for all relevant users
-    foreach ($user_ids as $user_id) {
-        $notif = $conn->prepare("INSERT INTO notifications (user_id, request_id, message, link, created_at) 
-                               VALUES (?, ?, ?, ?, NOW())");
-        $notif->bind_param('iiss', $user_id, $request_id, $message, $link);
-        $notif->execute();
-        $notif->close();
+    // Temporarily disable notifications until database tables are created
+    // foreach ($user_ids as $user_id) {
+    //     $notif = $conn->prepare("INSERT INTO notifications (user_id, request_id, message, type, created_at) 
+    //                            VALUES (?, ?, ?, ?, NOW())");
+    //     $notif->bind_param('iiss', $user_id, $request_id, $message, $type);
+    //     $notif->execute();
+    //     $notif->close();
+    // }
         
         // Uncomment to send email notifications
         // if ($user_id == $request['requester_id']) {
@@ -150,7 +151,7 @@ function send_approval_notifications($conn, $request_id, $release_date = null, $
         //     $subject = $is_receipt ? "Request Marked as Received" : "Request Approved";
         //     send_email($email, $subject, $message);
         // }
-    } // Close the foreach loop
+    // } // Close the foreach loop (commented out)
     
     return true;
 }

@@ -360,14 +360,27 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
         }
 
         .btn-secondary-minimal {
-            background-color: var(--gray-200);
-            color: var(--gray-700);
-            border: 1px solid var(--gray-300);
+            background-color: #e2e3e5;
+            color: #41464b;
+            border: 1px solid #ced4da;
         }
 
         .btn-secondary-minimal:hover {
-            background-color: var(--gray-300);
-            border-color: var(--gray-400);
+            background-color: #ced4da;
+            border-color: #adb5bd;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger-minimal {
+            background-color: var(--red-light);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .btn-danger-minimal:hover {
+            background-color: #f5c6cb;
+            border-color: #dc3545;
+            transform: translateY(-1px);
         }
 
         .form-actions {
@@ -532,6 +545,11 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             $schedule_stmt->execute();
             $schedule = $schedule_stmt->get_result()->fetch_assoc();
             $schedule_stmt->close();
+            
+            // Add default time for display
+            if ($schedule && $schedule['release_date']) {
+                $schedule['release_time'] = '09:00:00';
+            }
             ?>
             
             <div class="info-row">
@@ -541,10 +559,13 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                         <?php if ($schedule && $schedule['release_date']): ?>
                             <span style="color: var(--gray-700); font-size: 0.9375rem;">
                                 <i class="bi bi-calendar-check"></i> Scheduled for <?= htmlspecialchars(date('M d, Y', strtotime($schedule['release_date']))) ?>
+                                <?php if ($schedule['release_time']): ?>
+                                    at <?= htmlspecialchars(date('g:i A', strtotime($schedule['release_time']))) ?>
+                                <?php endif; ?>
                             </span>
                         <?php elseif ($receipt): ?>
                             <span style="color: var(--gray-700); font-size: 0.9375rem;">
-                                <i class="bi bi-truck"></i> Delivered on <?= htmlspecialchars(date('M d, Y', strtotime($receipt['created_at']))) ?>
+                                <i class="bi bi-truck"></i> Delivered on <?= htmlspecialchars(date('M d, Y g:i A', strtotime($receipt['created_at']))) ?>
                             </span>
                         <?php else: ?>
                             <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
@@ -553,6 +574,9 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                         <?php if ($schedule && $schedule['release_date']): ?>
                             <span style="color: var(--gray-700); font-size: 0.9375rem;">
                                 <i class="bi bi-calendar-check"></i> Scheduled for <?= htmlspecialchars(date('M d, Y', strtotime($schedule['release_date']))) ?>
+                                <?php if ($schedule['release_time']): ?>
+                                    at <?= htmlspecialchars(date('g:i A', strtotime($schedule['release_time']))) ?>
+                                <?php endif; ?>
                             </span>
                         <?php else: ?>
                             <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
@@ -676,7 +700,7 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 <div class="form-actions">
                     <button type="submit" name="action" value="approve" class="btn-minimal btn-success-minimal"><i class="bi bi-check-circle"></i> Approve & Forward to Supply Officer</button>
                     <button type="submit" name="action" value="return" class="btn-minimal btn-secondary-minimal" id="btnReturn"><i class="bi bi-arrow-return-left"></i> Return with Comment</button>
-                    <button type="submit" name="action" value="reject" class="btn-minimal" style="background-color: var(--red-light); color: #721c24; border: 1px solid #f5c6cb;"><i class="bi bi-x-circle"></i> Reject</button>
+                    <button type="submit" name="action" value="reject" class="btn-minimal btn-danger-minimal"><i class="bi bi-x-circle"></i> Reject</button>
                 </div>
             </form>
         </div>

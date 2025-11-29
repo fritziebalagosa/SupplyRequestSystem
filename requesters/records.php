@@ -24,7 +24,7 @@ if (isset($_SESSION['college_office_id'])) {
 
 if (!$college_office_id) die('Office not configured.');
 
-// fetch all requests for this office
+// fetch only approved/completed requests for this office
 $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
                         GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
                         FROM requests r
@@ -32,6 +32,7 @@ $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.fir
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
                         WHERE r.college_office_id = ?
+                        AND r.status IN ('approved', 'completed')
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
 $stmt->bind_param('i', $college_office_id);

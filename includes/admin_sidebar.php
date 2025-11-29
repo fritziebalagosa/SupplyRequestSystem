@@ -2,18 +2,17 @@
 // admin_sidebar.php - Sidebar for admin pages (replaces top navbar)
 $current_page = basename($_SERVER['PHP_SELF']);
 if (!isset($conn)) { @include(__DIR__ . '/../config/db.php'); }
-$alert_count = 0; $alerts = [];
-if (isset($conn) && $conn) {
-    $q = $conn->query("SELECT l.id, l.item_id, i.item_name, i.stock_qty, i.reorder_level, l.created_at
-                       FROM low_stock_alerts l
-                       JOIN items i ON i.id = l.item_id
-                       WHERE l.status = 'open'
-                       ORDER BY l.created_at DESC
-                       LIMIT 10");
-    if ($q) {
-        while ($r = $q->fetch_assoc()) { $alerts[] = $r; }
-        $alert_count = count($alerts);
-    }
+
+// Get notification count
+$notification_count = 0;
+if (isset($conn) && $conn && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND `read` = 0");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $notif_result = $stmt->get_result();
+    $notification_count = $notif_result->fetch_assoc()['count'];
+    $stmt->close();
 }
 ?>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
@@ -134,7 +133,7 @@ if (isset($conn) && $conn) {
       <a class="nav-link" href="../auth/logout.php"><i class="bi bi-box-arrow-right"></i> <span>Logout</span></a>
     </div>
     <div style="margin-top:0.5rem;">
-      <a class="nav-link" href="manage_inventory.php"><i class="bi bi-bell"></i> <span>Alerts <?php if($alert_count>0){ echo '<span style="color:var(--red-primary);font-weight:700;">('.$alert_count.')</span>'; } ?></span></a>
+      <a class="nav-link" href="notifications.php"><i class="bi bi-bell"></i> <span>Notifications <?php if($notification_count>0){ echo '<span style="color:var(--red-primary);font-weight:700;">('.$notification_count.')</span>'; } ?></span></a>
     </div>
   </div>
 </aside>

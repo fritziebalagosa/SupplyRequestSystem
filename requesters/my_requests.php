@@ -9,13 +9,14 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
-// fetch all requests by this requester
+// fetch all requests by this requester that are NOT approved/completed
 $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at,
                         GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
                         FROM requests r
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.requester_id = ?
+                        WHERE r.requester_id = ? 
+                        AND r.status NOT IN ('approved', 'completed')
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
 $stmt->bind_param("i", $user_id);

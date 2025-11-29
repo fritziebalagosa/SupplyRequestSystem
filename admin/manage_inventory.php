@@ -2,6 +2,12 @@
 include('../config/db.php');
 session_start();
 
+// Authentication check
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin', 'supply_head'])) {
+    header('Location: ../auth/log_in.php');
+    exit();
+}
+
 // 🔹 Auto-generate stock number
 function generateStockNumber($conn) {
     $prefix = "STK-" . date("Ymd") . "-";
@@ -65,14 +71,30 @@ $query = "
     FROM items 
     WHERE item_name LIKE ? 
       AND unit LIKE ?
-      AND (CASE WHEN stock_qty <= reorder_level THEN 'Low Stock' ELSE 'In Stock' END) LIKE ?
-    ORDER BY item_name ASC
 ";
 
+$params = [$search, $unit_filter];
+$types = "ss";
+
+if ($status_filter != '%') {
+    if ($status_filter == 'Low Stock') {
+        $query .= " AND stock_qty <= reorder_level";
+    } elseif ($status_filter == 'In Stock') {
+        $query .= " AND stock_qty > reorder_level";
+    }
+}
+
+$query .= " ORDER BY item_name ASC";
+
 $stmt = $conn->prepare($query);
-$stmt->bind_param("sss", $search, $unit_filter, $status_filter);
+$stmt->bind_param($types, ...$params);
 $stmt->execute();
 $result = $stmt->get_result();
+
+if (isset($_GET['debug'])) {
+    echo "<pre>DEBUG manage_inventory\nSQL: " . htmlspecialchars($query) . "\nRows: " . $result->num_rows . "</pre>";
+}
+
 ?>
 
 <!DOCTYPE html>

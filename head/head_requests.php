@@ -2,8 +2,6 @@
 session_start();
 include('../config/db.php');
 include('../includes/csrf.php');
-// include shared navbar for head
-include_once('../includes/head_dean_navbar.php');
 
 // require head role
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'head') {
@@ -52,14 +50,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
         exit;
     }
 
-    // verify request belongs to this college_office_id
-    $v = $conn->prepare("SELECT id FROM requests WHERE id = ? AND college_office_id = ? LIMIT 1");
+    // verify request belongs to this college_office_id and get current status
+    $v = $conn->prepare("SELECT status FROM requests WHERE id = ? AND college_office_id = ? LIMIT 1");
     $v->bind_param("ii", $request_db_id, $college_office_id);
     $v->execute();
     $vr = $v->get_result();
     if ($vr->num_rows === 0) {
         $message = "Request not found or you don't have permission.";
     } else {
+        $request = $vr->fetch_assoc();
+        
+        // Check if request can be acted on (must be in pending statuses)
+        if (!in_array($request['status'], ['pending_head', 'pending_officer'])) {
+            $message = "This request cannot be acted on in its current state.";
+        } else {
         // determine update values
         if ($action === 'approve') {
             $new_status = 'pending_officer';
@@ -88,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
             $message = 'Action performed successfully.';
         }
         $u->close();
+        } // Close the status validation else block
     }
     $v->close();
 
@@ -101,30 +106,40 @@ $flash = $_SESSION['flash_message'] ?? '';
 unset($_SESSION['flash_message']);
 
 // fetch pending requests for this head, include item names instead of request title
-$stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
+$status_to_fetch = ['pending_head', 'pending_officer'];
+$status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
+$sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
+                        rs.release_date, rp.created_at as receipt_date,
+                        COALESCE(GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', '), 'No items specified') AS items
                         FROM requests r
-                        JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.college_office_id = ? AND r.status = 'pending_head' AND u.created_by = ?
+                        WHERE r.college_office_id = ? AND r.status IN ($status_placeholders)
                         GROUP BY r.id
-                        ORDER BY r.created_at DESC");
-$stmt->bind_param("ii", $college_office_id, $user_id);
+                        ORDER BY r.created_at DESC";
+$stmt = $conn->prepare($sql);
+$param_types = 'i' . str_repeat('s', count($status_to_fetch)); // college_office_id is int, statuses are strings
+$stmt->bind_param($param_types, $college_office_id, ...$status_to_fetch);
 $stmt->execute();
 $results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 // Also fetch approved requests to notify head when scheduled for release
 $stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
+                        rs.release_date, rp.created_at as receipt_date,
+                        COALESCE(GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', '), 'No items specified') AS items
                         FROM requests r
-                        JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN users u ON r.requester_id = u.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.college_office_id = ? AND r.status = 'approved' AND u.created_by = ?
+                        WHERE r.college_office_id = ? AND r.status = 'approved'
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
-$stmt2->bind_param("ii", $college_office_id, $user_id);
+$stmt2->bind_param("i", $college_office_id);
 $stmt2->execute();
 $approved = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt2->close();
@@ -133,60 +148,333 @@ $stmt2->close();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Head - Requests</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Requests - Head</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="container py-4">
-    <h2>Requests Awaiting Your Review</h2>
-    <?php if ($flash): ?>
-        <div class="alert alert-info"><?= htmlspecialchars($flash) ?></div>
-    <?php endif; ?>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --red-light: #f8d7da;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
 
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Request ID</th>
-                <th>Items</th>
-                <th>Requester</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-        <?php if (empty($results)): ?>
-            <tr><td colspan="6">No requests pending your review.</td></tr>
-        <?php else: foreach ($results as $r): ?>
-            <tr>
-                <td><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></td>
-                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-                <td><?= htmlspecialchars(ucfirst($r['status'])) ?></td>
-                <td><?= htmlspecialchars($r['created_at']) ?></td>
-                <td>
-                    <a class="btn btn-sm btn-primary" href="view_request.php?id=<?= $r['id'] ?>">View</a>
-                </td>
-            </tr>
-        <?php endforeach; endif; ?>
-        </tbody>
-    </table>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 1rem;
+        }
+
+        .page-subtitle {
+            color: var(--gray-700);
+            font-size: 0.9375rem;
+            margin-bottom: 0;
+        }
+
+        /* Alert Messages */
+        .alert {
+            border-radius: 8px;
+            border: none;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        /* Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--gray-900);
+        }
+
+        .section-header i {
+            color: var(--gray-700);
+        }
+
+        /* Tables */
+        .table-minimal {
+            margin: 0;
+            width: 100%;
+        }
+
+        .table-minimal thead th {
+            background: var(--gray-50);
+            color: var(--gray-700);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-200);
+            text-align: left;
+        }
+
+        .table-minimal tbody td {
+            padding: 1rem 1.5rem;
+            color: var(--gray-900);
+            font-size: 0.9375rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-100);
+            vertical-align: middle;
+        }
+
+        .table-minimal tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-minimal tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+
+        .request-id {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: var(--red-primary);
+        }
+
+        /* Badges */
+        .badge-minimal {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            border: 1px solid;
+            gap: 0.375rem;
+        }
+
+        .badge-pending {
+            background-color: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .badge-approved {
+            background-color: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        /* Buttons */
+        .btn-minimal {
+            padding: 0.4rem 0.875rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            border: 1px solid;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+
+        .btn-action-view {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        .btn-action-view:hover {
+            background: #bee5eb;
+            border-color: #17a2b8;
+            color: #0c5460;
+            transform: translateY(-1px);
+        }
+
+        /* Empty State */
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--gray-700);
+        }
+
+        .empty-state i {
+            font-size: 2rem;
+            display: block;
+            margin-bottom: 1rem;
+            color: #adb5bd;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container-main {
+                padding: 1.5rem 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .table-minimal thead th,
+            .table-minimal tbody td {
+                padding: 0.75rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php include('../includes/head_dean_navbar.php'); ?>
     
-    <h3 class="mt-4">Approved & Ready for Release</h3>
-    <table class="table table-striped">
-        <thead><tr><th>Request ID</th><th>Items</th><th>Requester</th><th>Date</th><th>Action</th></tr></thead>
-        <tbody>
-        <?php if (empty($approved)): ?>
-            <tr><td colspan="5">No approved requests ready for release.</td></tr>
-        <?php else: foreach ($approved as $r): ?>
-            <tr>
-                <td><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></td>
-                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
-                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
-                <td><?= htmlspecialchars($r['created_at']) ?></td>
-                <td><a class="btn btn-sm btn-primary" href="view_request.php?id=<?= $r['id'] ?>">View</a></td>
-            </tr>
-        <?php endforeach; endif; ?>
-        </tbody>
-    </table>
+    <div class="container-main">
+        <div class="page-header">
+            <h1 class="page-title">Requests Awaiting Your Review</h1>
+            <p class="page-subtitle">Review and approve requests from your department</p>
+        </div>
+
+        <?php if ($flash): ?>
+            <div class="alert alert-info"><?= htmlspecialchars($flash) ?></div>
+        <?php endif; ?>
+
+        <div class="section-card">
+            <div class="section-header">
+                <i class="bi bi-clock-history"></i>
+                <h2>Pending Review</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-minimal">
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Items</th>
+                            <th>Requester</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Delivery Date</th>
+                            <th>Receipt Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($results)): ?>
+                            <tr><td colspan="8">
+                                <div class="empty-state">
+                                    <i class="bi bi-inbox"></i>
+                                    <p>No requests pending your review.</p>
+                                </div>
+                            </td></tr>
+                        <?php else: foreach ($results as $r): ?>
+                            <tr>
+                                <td><span class="request-id"><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span></td>
+                                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+                                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+                                <td><span class="badge-minimal badge-pending"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $r['status']))) ?></span></td>
+                                <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                <td><?= $r['release_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['release_date']))) : '<span class="badge-minimal badge-pending">No Schedule</span>' ?></td>
+                                <td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
+                                <td>
+                                    <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
+                                        <i class="bi bi-eye"></i> View
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <div class="section-header">
+                <i class="bi bi-check-circle"></i>
+                <h2>Approved & Ready for Release</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-minimal">
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Items</th>
+                            <th>Requester</th>
+                            <th>Date</th>
+                            <th>Delivery Date</th>
+                            <th>Receipt Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($approved)): ?>
+                            <tr><td colspan="7">
+                                <div class="empty-state">
+                                    <i class="bi bi-inbox"></i>
+                                    <p>No approved requests ready for release.</p>
+                                </div>
+                            </td></tr>
+                        <?php else: foreach ($approved as $r): ?>
+                            <tr>
+                                <td><span class="request-id"><?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span></td>
+                                <td><?= htmlspecialchars($r['items'] ?? '—') ?></td>
+                                <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
+                                <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                <td><?= $r['release_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['release_date']))) : '<span class="badge-minimal badge-pending">No Schedule</span>' ?></td>
+                                <td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
+                                <td>
+                                    <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
+                                        <i class="bi bi-eye"></i> View
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

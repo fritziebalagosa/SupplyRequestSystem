@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin',
 $admin_id = (int)$_SESSION['user_id'];
 
 // Ensure helper tables exist
-$conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+$conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, release_time TIME DEFAULT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 $conn->query("CREATE TABLE IF NOT EXISTS request_receipts (id INT AUTO_INCREMENT PRIMARY KEY, request_id INT NOT NULL, receiver_id INT NOT NULL, photo_path VARCHAR(255) NOT NULL, status VARCHAR(20) DEFAULT 'submitted', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, confirmed_at DATETIME NULL, confirmed_by INT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 // Fetch For Release (approved by me, scheduled, not yet completed)
@@ -70,7 +70,12 @@ $comp_res = $comp_stmt->get_result();
     .btn-minimal{padding:.4rem .875rem;border-radius:6px;font-weight:500;font-size:.875rem;border:1px solid #bee5eb;transition:.2s;text-decoration:none;display:inline-flex;align-items:center;gap:.375rem;background:#d1ecf1;color:#0c5460}
     .btn-sm-minimal{padding:.3rem .6rem;font-size:.8125rem}
     .btn-action-view{background:#d1ecf1;color:#0c5460;border-color:#bee5eb}
+    .btn-action-edit{background:#fff3cd;color:#856404;border-color:#ffeaa7}
     .btn-minimal:hover{background:#bee5eb;border-color:#17a2b8;color:#0c5460}
+    .request-id{font-family:'Courier New',monospace;font-weight:600;color:#dc3545;font-size:.875rem}
+    .empty-state{text-align:center;padding:3rem 1.5rem;color:#6b7280}
+    .empty-state i{font-size:3rem;color:#9ca3af;margin-bottom:1rem;display:block}
+    .empty-state p{margin:0;font-size:.9375rem}
   </style>
 </head>
 <body>
@@ -104,7 +109,7 @@ $comp_res = $comp_stmt->get_result();
             <tr>
               <td><span class="request-id">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
               <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
-              <td><?= htmlspecialchars(date('M d, Y', strtotime($dispRel))) ?></td>
+              <td><?= htmlspecialchars(date('M d, Y', strtotime($dispRel))) ?> 9:00 AM</td>
               <td><?= htmlspecialchars(date('M d, Y', strtotime($row['created_at']))) ?></td>
               <td>
                 <span class="badge-minimal" style="background:#fff3cd;color:#856404;border-color:#ffeaa7;">
@@ -114,6 +119,10 @@ $comp_res = $comp_stmt->get_result();
               <td>
                 <a class="btn-minimal btn-sm-minimal btn-action-view" href="view_request.php?id=<?= (int)$row['id'] ?>">
                   <i class="bi bi-eye"></i> View Details
+                </a>
+                <br><br>
+                <a class="btn-minimal btn-sm-minimal btn-action-edit" href="adjust_schedule.php?id=<?= (int)$row['id'] ?>" title="Adjust Release Schedule">
+                  <i class="bi bi-calendar-plus"></i> Adjust Schedule
                 </a>
               </td>
             </tr>
@@ -139,7 +148,7 @@ $comp_res = $comp_stmt->get_result();
             <tr>
               <th>Request ID</th>
               <th>Requester</th>
-              <th>Release Date</th>
+              <th>Release Date & Time</th>
               <th>Completed On</th>
               <th>Status</th>
               <th>Action</th>
@@ -150,7 +159,7 @@ $comp_res = $comp_stmt->get_result();
             <tr>
               <td><span class="request-id">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
               <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
-              <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?></td>
+              <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?> 9:00 AM</td>
               <td><?= htmlspecialchars($row['confirmed_at'] ? date('M d, Y', strtotime($row['confirmed_at'])) : '-') ?></td>
               <td>
                 <span class="badge-minimal" style="background:#d4edda;color:#155724;border-color:#c3e6cb;">

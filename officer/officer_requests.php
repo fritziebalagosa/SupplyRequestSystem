@@ -56,31 +56,303 @@ $stmt2=$conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.firs
 $stmt2->execute(); $forwarded=$stmt2->get_result();
 $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SESSION['flash_message']);
 ?>
-<!DOCTYPE html><html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Requests Awaiting Your Review</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-<style>
-  :root { --red-primary:#dc3545; --gray-50:#fafafa; --gray-100:#f5f5f5; --gray-200:#eeeeee; --gray-700:#616161; --gray-900:#212121; }
-  body{background:var(--gray-50);color:var(--gray-900)}
-  .container-main{max-width:1200px;margin:0 auto;padding:24px}
-  .page-title{font-weight:600;margin-bottom:16px}
-  .section-card{background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;margin-bottom:20px}
-  .section-header{padding:1rem 1.25rem;border-bottom:1px solid var(--gray-200);background:#fff;display:flex;align-items:center;gap:.5rem}
-  .section-header h2{font-size:1.05rem;font-weight:600;margin:0}
-  .section-header i{color:#6c757d}
-  .table-minimal{margin:0;width:100%}
-  .table-minimal thead th{background:#f6f6f6;font-size:.8rem;text-transform:uppercase;letter-spacing:.5px}
-  .table-minimal tbody td{vertical-align:middle}
-  .request-id{font-family:Courier New,monospace;color:var(--red-primary);font-weight:600}
-  .badge-pending{background:#fff3cd;color:#856404;border:1px solid #ffeaa7;padding:.25rem .5rem;border-radius:6px;font-size:.8rem}
-  .btn-minimal{padding:.4rem .875rem;border-radius:6px;font-weight:500;font-size:.875rem;border:1px solid #bee5eb;transition:.2s;text-decoration:none;display:inline-flex;align-items:center;gap:.375rem;background:#d1ecf1;color:#0c5460}
-  .btn-minimal:hover{background:#bee5eb;border-color:#17a2b8;color:#0c5460}
-  .empty-state{padding:2rem;text-align:center;color:#6c757d}
-  .empty-state i{font-size:1.5rem;display:block;margin-bottom:.5rem;color:#adb5bd}
-  .stock-low{color:#b45309;font-weight:600}.stock-none{color:#b91c1c;font-weight:700}
-</style>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Requests Awaiting Your Review</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --red-light: #f8d7da;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 1rem;
+        }
+
+        /* Alert Messages */
+        .alert {
+            border-radius: 8px;
+            border: none;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        /* Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--gray-900);
+        }
+
+        .section-header i {
+            color: var(--gray-700);
+        }
+
+        /* Tables */
+        .table-minimal {
+            margin: 0;
+            width: 100%;
+        }
+
+        .table-minimal thead th {
+            background: var(--gray-50);
+            color: var(--gray-700);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-200);
+            text-align: left;
+        }
+
+        .table-minimal tbody td {
+            padding: 1rem 1.5rem;
+            color: var(--gray-900);
+            font-size: 0.9375rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-100);
+            vertical-align: middle;
+        }
+
+        .table-minimal tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-minimal tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+
+        /* Badges */
+        .badge-minimal {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            border: 1px solid;
+            gap: 0.375rem;
+        }
+
+        .badge-pending {
+            background-color: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .badge-approved {
+            background-color: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .badge-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        .request-id {
+            font-family: 'Courier New', monospace;
+            color: var(--red-primary);
+            font-weight: 600;
+        }
+
+        /* Buttons */
+        .btn-minimal {
+            padding: 0.4rem 0.875rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            border: 1px solid;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+
+        .btn-action-view {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        .btn-action-view:hover {
+            background: #bee5eb;
+            border-color: #17a2b8;
+            color: #0c5460;
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background-color: var(--red-primary);
+            border-color: var(--red-primary);
+            color: white;
+            font-weight: 500;
+            padding: 0.4rem 0.875rem;
+            font-size: 0.875rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--red-dark);
+            border-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline-danger {
+            border-color: var(--red-primary);
+            color: var(--red-primary);
+            font-weight: 500;
+            padding: 0.4rem 0.875rem;
+            font-size: 0.875rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-outline-danger:hover {
+            background-color: var(--red-primary);
+            border-color: var(--red-primary);
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--gray-700);
+        }
+
+        .empty-state i {
+            font-size: 2rem;
+            display: block;
+            margin-bottom: 1rem;
+            color: #adb5bd;
+        }
+
+        .stock-low {
+            color: #b45309;
+            font-weight: 600;
+        }
+
+        .stock-none {
+            color: #b91c1c;
+            font-weight: 700;
+        }
+
+        /* Modal improvements */
+        .modal-content {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 6px 32px rgba(0, 0, 0, 0.15);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid var(--gray-200);
+            padding: 1.25rem 1.5rem;
+            background: var(--gray-50);
+        }
+
+        .modal-title {
+            font-weight: 600;
+            color: var(--gray-900);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container-main {
+                padding: 1.5rem 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .table-minimal thead th,
+            .table-minimal tbody td {
+                padding: 0.75rem 1rem;
+            }
+
+            .d-flex.gap-2 {
+                flex-direction: column;
+                gap: 0.5rem !important;
+            }
+
+            .btn-primary,
+            .btn-outline-danger {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
 </head><body>
 <?php include('../includes/officer_navbar.php'); ?>
 <div class="container-main">
@@ -95,7 +367,10 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
         <tbody>
         <?php if(empty($pending_rows)): ?>
           <tr><td colspan="6">
-            <div class="empty-state"><i class="bi bi-inbox" style="font-size:2rem"></i>No requests pending your review at the moment.</div>
+            <div class="empty-state">
+              <i class="bi bi-inbox"></i>
+              <p>No requests pending your review at the moment.</p>
+            </div>
           </td></tr>
         <?php else: foreach($pending_rows as $r): ?>
           <tr>
@@ -105,8 +380,8 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
             <td><span class="badge-pending"><i class="bi bi-clock-history"></i> <?= htmlspecialchars(ucwords(str_replace('_',' ',$r['status']))) ?></span></td>
             <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
             <td class="d-flex gap-2">
-              <a class="btn-minimal" href="view_request.php?id=<?= (int)$r['id'] ?>"><i class="bi bi-eye"></i> View</a>
-              <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#m<?= (int)$r['id'] ?>">
+              <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= (int)$r['id'] ?>"><i class="bi bi-eye"></i> View</a>
+              <button class="btn-minimal btn-primary-minimal" data-bs-toggle="modal" data-bs-target="#m<?= (int)$r['id'] ?>">
                 <i class="bi bi-clipboard-check"></i> Review
               </button>
             </td>
@@ -193,7 +468,10 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
       <thead><tr><th>Request ID</th><th>Items</th><th>Requester</th><th>Date Approved</th><th>Actions</th></tr></thead>
       <tbody>
       <?php if($forwarded->num_rows===0): ?><tr><td colspan="5">
-        <div class="empty-state"><i class="bi bi-inbox" style="font-size:2rem"></i>No approved requests yet.</div>
+        <div class="empty-state">
+          <i class="bi bi-inbox"></i>
+          <p>No approved requests yet.</p>
+        </div>
       </td></tr>
       <?php else: while($fr=$forwarded->fetch_assoc()): ?>
         <tr>
@@ -201,7 +479,7 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
           <td><?= htmlspecialchars($fr['items'] ?? '—') ?></td>
           <td><?= htmlspecialchars(($fr['first_name']??'').' '.($fr['last_name']??'')) ?></td>
           <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($fr['created_at']))) ?></td>
-          <td><a class="btn-minimal" href="view_request.php?id=<?= (int)$fr['id'] ?>"><i class="bi bi-eye"></i> View Details</a></td>
+          <td><a class="btn-minimal btn-action-view" href="view_request.php?id=<?= (int)$fr['id'] ?>"><i class="bi bi-eye"></i> View Details</a></td>
         </tr>
       <?php endwhile; endif; ?>
       </tbody>

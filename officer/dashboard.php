@@ -58,41 +58,242 @@ $recent_stmt->close();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Officer Dashboard - WMSU OSRS</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-  <style>
-    :root { --red-primary:#dc3545; --red-dark:#c82333; --gray-50:#fafafa; --gray-100:#f5f5f5; --gray-200:#eeeeee; --gray-700:#616161; --gray-900:#212121; }
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Inter',sans-serif;background:var(--gray-50);color:var(--gray-900);line-height:1.6}
-    .container-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
-    .page-title{font-size:1.75rem;font-weight:600;color:var(--gray-900);letter-spacing:-.5px;margin-bottom:.25rem}
-    .page-subtitle{color:var(--gray-700);font-size:.9375rem;margin-bottom:2rem}
-    .summary-card{background:#fff;border-radius:12px;padding:1.5rem;border:1px solid var(--gray-200);height:100%}
-    .summary-card .label{font-size:.875rem;color:var(--gray-700);font-weight:500;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.5px}
-    .summary-card .number{font-size:2.25rem;font-weight:700;line-height:1}
-    .summary-card.card-total .number{color:#dc3545}
-    .summary-card.card-pending .number{color:#ffc107}
-    .summary-card.card-final .number{color:#0c5460}
-    .summary-card.card-approved .number{color:#28a745}
-    .section-card{background:#fff;border-radius:12px;border:1px solid var(--gray-200);overflow:hidden;margin-bottom:2rem}
-    .section-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--gray-200);background:#fff}
-    .section-header h2{font-size:1.125rem;font-weight:600;margin:0}
-    .table-minimal{margin:0;width:100%}
-    .table-minimal thead th{background:var(--gray-50);color:var(--gray-700);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:1rem 1.5rem;border:none;border-bottom:1px solid var(--gray-200);text-align:left}
-    .table-minimal tbody td{padding:1rem 1.5rem;color:var(--gray-900);font-size:.9375rem;border:none;border-bottom:1px solid var(--gray-100);vertical-align:middle}
-    .table-minimal tbody tr:last-child td{border-bottom:none}
-    .badge-minimal{display:inline-flex;align-items:center;padding:.35rem .75rem;border-radius:6px;font-size:.8125rem;font-weight:500;border:1px solid}
-    .badge-pending{background:#fff3cd;color:#856404;border-color:#ffeaa7}
-    .badge-approved{background:#d4edda;color:#155724;border-color:#c3e6cb}
-    .badge-info{background:#d1ecf1;color:#0c5460;border-color:#bee5eb}
-    .request-id{font-family:'Courier New',monospace;font-weight:600;color:#dc3545}
-    .btn-minimal{padding:.4rem .875rem;border-radius:6px;font-weight:500;font-size:.875rem;border:1px solid;transition:.2s;text-decoration:none;display:inline-flex;align-items:center;gap:.375rem}
-    .btn-action-view{background:#d1ecf1;color:#0c5460;border-color:#bee5eb}
-    .btn-action-view:hover{background:#bee5eb;border-color:#17a2b8;color:#0c5460}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Officer Dashboard - WMSU OSRS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --red-primary: #dc3545;
+            --red-dark: #c82333;
+            --red-light: #f8d7da;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #eeeeee;
+            --gray-300: #e0e0e0;
+            --gray-700: #616161;
+            --gray-900: #212121;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .container-main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-subtitle {
+            color: var(--gray-700);
+            font-size: 0.9375rem;
+            margin-bottom: 2rem;
+        }
+
+        .summary-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--gray-200);
+            height: 100%;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .summary-card .label {
+            font-size: 0.875rem;
+            color: var(--gray-700);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-card .number {
+            font-size: 2.25rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .summary-card.card-total .number { color: var(--red-primary); }
+        .summary-card.card-pending .number { color: #ffc107; }
+        .summary-card.card-final .number { color: #0c5460; }
+        .summary-card.card-approved .number { color: #28a745; }
+
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--gray-900);
+        }
+
+        .table-minimal {
+            margin: 0;
+            width: 100%;
+        }
+
+        .table-minimal thead th {
+            background: var(--gray-50);
+            color: var(--gray-700);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-200);
+            text-align: left;
+        }
+
+        .table-minimal tbody td {
+            padding: 1rem 1.5rem;
+            color: var(--gray-900);
+            font-size: 0.9375rem;
+            border: none;
+            border-bottom: 1px solid var(--gray-100);
+            vertical-align: middle;
+        }
+
+        .table-minimal tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-minimal tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+
+        .badge-minimal {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            border: 1px solid;
+            gap: 0.375rem;
+        }
+
+        .badge-pending {
+            background-color: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .badge-approved {
+            background-color: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .badge-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        .request-id {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: var(--red-primary);
+        }
+
+        .btn-minimal {
+            padding: 0.4rem 0.875rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            border: 1px solid;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+
+        .btn-action-view {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        .btn-action-view:hover {
+            background: #bee5eb;
+            border-color: #17a2b8;
+            color: #0c5460;
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--gray-700);
+        }
+
+        .empty-state i {
+            font-size: 2rem;
+            display: block;
+            margin-bottom: 1rem;
+            color: #adb5bd;
+        }
+
+        @media (max-width: 768px) {
+            .container-main {
+                padding: 1.5rem 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .summary-card .number {
+                font-size: 1.75rem;
+            }
+
+            .table-minimal thead th,
+            .table-minimal tbody td {
+                padding: 0.75rem 1rem;
+            }
+        }
+    </style>
 </head>
 <body>
   <?php include('../includes/officer_navbar.php'); ?>
@@ -111,7 +312,10 @@ $recent_stmt->close();
       <div class="section-header"><h2>Recent Requests</h2></div>
       <div class="table-responsive">
         <?php if (empty($recent)): ?>
-          <div class="p-4 text-center text-muted">No recent requests.</div>
+          <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p>No recent requests.</p>
+          </div>
         <?php else: ?>
         <table class="table table-minimal">
           <thead>

@@ -62,13 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             throw new Exception('This request has not been approved yet.');
         }
 
-        // Set timezone to Asia/Manila for accurate time calculations
-        date_default_timezone_set('Asia/Manila');
-        
         // Create DateTime objects for time calculations
-        $release_date = new DateTime($release_data['created_at'], new DateTimeZone('UTC'));
-        $release_date->setTimezone(new DateTimeZone('Asia/Manila'));
-        $now = new DateTime('now', new DateTimeZone('Asia/Manila'));
+        $release_date = new DateTime($release_data['created_at']);
+        $now = new DateTime('now');
         
         // Format the release date for display
         $formatted_release_date = $release_date->format('F j, Y, g:i a');
@@ -674,22 +670,22 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
         <div class="info-card">
             <h5><i class="bi bi-check-square"></i> Confirm Receipt</h5>
             <?php 
-            // Get release date from request_actions
-            $release_stmt = $conn->prepare("SELECT comment, created_at FROM request_actions WHERE request_id = ? AND action_type = 'approved' ORDER BY created_at DESC LIMIT 1");
+            // Get release date from release_schedule
+            $release_stmt = $conn->prepare("SELECT release_date FROM release_schedule WHERE request_id = ? LIMIT 1");
             $release_stmt->bind_param("i", $id);
             $release_stmt->execute();
             $release_info = $release_stmt->get_result()->fetch_assoc();
-            $release_date = '';
-            if ($release_info && strpos($release_info['comment'], 'Release date: ') === 0) {
-                $release_date = substr($release_info['comment'], 14);
+            $release_datetime = '';
+            if ($release_info && $release_info['release_date']) {
+                $release_datetime = date('M d, Y', strtotime($release_info['release_date'])) . ' 9:00 AM';
             }
             $release_stmt->close();
             ?>
             
-            <?php if ($release_date): ?>
+            <?php if ($release_datetime): ?>
             <div class="alert alert-info mb-3" style="background-color: #e7f5ff; border-left: 4px solid #4dabf7;">
                 <i class="bi bi-calendar-check me-2"></i>
-                <strong>Scheduled Release Date:</strong> <?php echo htmlspecialchars($release_date); ?>
+                <strong>Scheduled Release Date & Time:</strong> <?php echo htmlspecialchars($release_datetime); ?>
             </div>
             <?php endif; ?>
             
@@ -867,16 +863,17 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
     <script>
         // Store the release time from PHP to JavaScript
         const releaseTime = new Date('<?php 
-            if (isset($release_date) && !empty($release_date)) {
-                // Parse the release date from the comment (format: "Release date: November 22, 2025, 5:58 am")
-                $datetime = DateTime::createFromFormat('F j, Y, g:i a', $release_date);
+            if (isset($release_datetime) && !empty($release_datetime)) {
+                
+                // Parse the formatted datetime string back to DateTime object
+                $datetime = DateTime::createFromFormat('M d, Y g:i A', $release_datetime);
                 if ($datetime) {
                     echo $datetime->format('Y-m-d H:i:s');
                 } else {
                     echo date('Y-m-d H:i:s', strtotime('+1 day'));
                 }
             } else {
-                // Default to current time + 1 day if no release date is set
+                // Default to current time + 1 day if no release datetime is set
                 echo date('Y-m-d H:i:s', strtotime('+1 day'));
             }
         ?>');
@@ -900,14 +897,18 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
         function showEarlySubmissionModal(releaseTime) {
             const now = new Date();
             const timeRemaining = formatTimeRemaining(releaseTime - now);
-            const formattedReleaseTime = releaseTime.toLocaleString('en-US', {
+            
+            // Format the date to match the PHP display format (Asia/Manila timezone)
+            const options = {
                 month: 'long',
-                day: 'numeric',
+                day: 'numeric', 
                 year: 'numeric',
                 hour: 'numeric',
                 minute: '2-digit',
-                hour12: true
-            });
+                hour12: true,
+                timeZone: 'Asia/Manila'
+            };
+            const formattedReleaseTime = releaseTime.toLocaleString('en-US', options);
 
             document.getElementById('releaseTimeMessage').innerHTML = 
                 `The items will be available for <strong>delivery</strong> on <strong>${formattedReleaseTime}</strong>.<br><br>` +

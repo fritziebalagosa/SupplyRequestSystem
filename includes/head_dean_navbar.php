@@ -87,7 +87,8 @@ if (!empty($_SESSION['user_id']) && isset($conn)) {
 
   .navbar-custom .nav-link:hover {
     color: var(--red-primary) !important;
-    background-color: #fafafa;
+    background-color: #fff5f5;
+    transform: translateY(-1px);
   }
 
   .navbar-custom .nav-link.active {

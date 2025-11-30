@@ -2,6 +2,18 @@
 include('../config/db.php');
 session_start();
 
+// Check if user is logged in
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['role'])) {
+    header('Location: ../auth/log_in.php');
+    exit();
+}
+
+// Check if user has admin role
+if ($_SESSION['role'] !== 'admin') {
+    header('Location: ../auth/log_in.php');
+    exit();
+}
+
 // Summary counts
 $total_requests = $conn->query("SELECT COUNT(*) AS total FROM requests")->fetch_assoc()['total'];
 $approved_requests = $conn->query("SELECT COUNT(*) AS total FROM requests WHERE status = 'approved'")->fetch_assoc()['total'];

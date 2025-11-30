@@ -1,55 +1,51 @@
 <?php
+
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 session_start();
-include('../config/db.php');
+require_once '../config/db.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email']);
+// Check if form was submitted (has email and password)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($_POST['password'])) {
+    $email = $_POST['email'];
     $password = $_POST['password'];
-
-    // Check user by email
-    $stmt = $conn->prepare("SELECT * FROM users WHERE email = ? AND status = 'active' LIMIT 1");
-    $stmt->bind_param("s", $email);
+    
+    // Select required fields from the USERS table
+    $stmt = $conn->prepare("SELECT id, password, role, must_change_password FROM users WHERE email = ?");
+    $stmt->bind_param('s', $email);
     $stmt->execute();
     $result = $stmt->get_result();
-
-    if ($result->num_rows === 1) {
-        $user = $result->fetch_assoc();
-
+    $user = $result->fetch_assoc();
+    
+    if ($user) {
+        
         if (password_verify($password, $user['password'])) {
-            // Login success
+            // Password is correct. Store session variables.
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['role'] = $user['role'];
-            $_SESSION['first_name'] = $user['first_name'];
-            // store user's college_office_id correctly from the fetched row
-            $_SESSION['college_office_id'] = $user['college_office_id'];
-
-
-            // Redirect based on role
-            switch ($user['role']) {
-                case 'requester':
-                    header('Location: ../requesters/dashboard.php');
-                    exit();
-                case 'dean':
-                    header('Location: ../dean/dashboard.php');
-                    exit();
-                case 'head':
-                    header('Location: ../head/dashboard.php');
-                    exit();
-                case 'supply_officer':
-                    header('Location: ../officer/dashboard.php');
-                    exit();
-                case 'admin':
-                    header('Location: ../admin/dashboard.php');
-                    exit();
-                default:
-                    $error = "Unknown role detected.";
-                    break;
+            
+            // === INTERCEPTION LOGIC ===
+            if ($user['must_change_password'] == 1) {
+                header("Location: new_password.php"); 
+                exit();
             }
+
+            // Normal Login Flow (Redirect based on role)
+            if ($user['role'] == 'admin') {
+                header("Location: ../admin/dashboard.php");
+            } else {
+                // Ensure non-admin users have 'requester' role in session
+                $_SESSION['role'] = 'requester';
+                header("Location: ../requesters/dashboard.php");
+            }
+            exit();
         } else {
-            $error = "Invalid password.";
+            $error = "Invalid email or password.";
         }
     } else {
-        $error = "No active account found with that email.";
+        $error = "Invalid email or password.";
     }
 }
 ?>
@@ -70,7 +66,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            /* <CHANGE> Set background image for the page */
             background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('../wmsu.jpg');
 
             background-size: cover;
@@ -222,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" id="password" name="password" required>
             </div>
 
-            <button type="submit" class="login-btn">Sign In</button>
+            <button type="submit" name="login_btn" class="login-btn">Sign In</button>
         </form>
     </div>
 </div>

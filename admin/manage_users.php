@@ -2,6 +2,14 @@
 session_start();
 include('../config/db.php');
 
+// Required PHPMailer includes 
+require_once '../libs/PHPMailer/src/Exception.php';
+require_once '../libs/PHPMailer/src/PHPMailer.php';
+require_once '../libs/PHPMailer/src/SMTP.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
 // Ensure only admin
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     header('Location: ../login.php');
@@ -14,11 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
     $middle_name = !empty($_POST['middle_name']) ? trim($_POST['middle_name']) : NULL;
     $last_name = trim($_POST['last_name']);
     $email = trim($_POST['email']);
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
     $role = $_POST['role'];
     $office_type = $_POST['office_type'];
     $college_office_name = trim($_POST['college_office_name']);
     $status = 'active';
+
+    // Generate secure temporary password
+    $temp_password = bin2hex(random_bytes(4)); // 8-character temporary password
+    $password = password_hash($temp_password, PASSWORD_DEFAULT);
+    $must_change_password = 1; // Force password change on first login
 
     // find or create college/office
     $stmt = $conn->prepare("SELECT id FROM college_offices WHERE name = ? AND type = ?");
@@ -40,23 +52,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
         $check = $conn->query("SELECT id FROM users WHERE role='supply_officer' AND status='active'");
         if ($check->num_rows > 0) $error = "Only one Supply Officer is allowed.";
     } elseif ($role === 'dean' && $office_type === 'College') {
+        // Check if this college already has an active dean
         $check = $conn->prepare("SELECT id FROM users WHERE role='dean' AND college_office_id=? AND status='active'");
         $check->bind_param("i", $college_office_id);
         $check->execute();
-        if ($check->get_result()->num_rows > 0) $error = "This college already has a Dean.";
+        $result = $check->get_result();
+        if ($result->num_rows > 0) {
+            $error = "This college already has a Dean. (College ID: $college_office_id, Found: {$result->num_rows} deans)";
+        }
     } elseif ($role === 'head' && $office_type === 'Office') {
+        // Check if this office already has an active head
         $check = $conn->prepare("SELECT id FROM users WHERE role='head' AND college_office_id=? AND status='active'");
         $check->bind_param("i", $college_office_id);
         $check->execute();
-        if ($check->get_result()->num_rows > 0) $error = "This office already has a Head.";
+        $result = $check->get_result();
+        if ($result->num_rows > 0) {
+            $error = "This office already has a Head. (Office ID: $college_office_id, Found: {$result->num_rows} heads)";
+        }
     }
 
     if (!isset($error)) {
-        $insert = $conn->prepare("INSERT INTO users (first_name, middle_name, last_name, email, password, role, college_office_id, status, created_at)
-                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-        $insert->bind_param("ssssssis", $first_name, $middle_name, $last_name, $email, $password, $role, $college_office_id, $status);
-        $insert->execute();
-        $success = "User successfully added.";
+        // Insert user with temporary password and forced change flag
+        $insert = $conn->prepare("INSERT INTO users (first_name, middle_name, last_name, email, password, role, college_office_id, status, must_change_password, created_at)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+        $insert->bind_param("ssssssisi", $first_name, $middle_name, $last_name, $email, $password, $role, $college_office_id, $status, $must_change_password);
+        
+        if ($insert->execute()) {
+            // Send email with temporary password
+            $mail = new PHPMailer(true);
+            try {
+                // SMTP Configuration - UPDATE THESE WITH YOUR SETTINGS
+                $mail->isSMTP();
+                $mail->Host = 'smtp.gmail.com'; 
+                $mail->SMTPAuth = true;
+                $mail->Username = 'fritziemaebalagosa@gmail.com'; 
+                $mail->Password = 'zcof vatq iukf ssya'; 
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port = 587;
+
+                $mail->setFrom('no-reply@wmsu.edu.ph', 'WMSU Supply Request System');
+                $mail->addAddress($email);
+                $mail->addReplyTo('admin@wmsu.edu.ph', 'System Administrator');
+
+                $mail->isHTML(true);
+                $mail->Subject = 'Your WMSU Supply Request System Account';
+                
+                $full_name = $first_name . ' ' . ($middle_name ? $middle_name . ' ' : '') . $last_name;
+                $mail->Body = "
+                    <h2>Welcome to WMSU Supply Request System</h2>
+                    <p>Dear <strong>{$full_name}</strong>,</p>
+                    <p>Your account has been created successfully. Here are your login credentials:</p>
+                    <table border='1' cellpadding='10' cellspacing='0' style='border-collapse: collapse;'>
+                        <tr><td><strong>Email:</strong></td><td>{$email}</td></tr>
+                        <tr><td><strong>Temporary Password:</strong></td><td><code style='background: #f0f0f0; padding: 5px;'>{$temp_password}</code></td></tr>
+                        <tr><td><strong>Role:</strong></td><td>" . ucfirst(str_replace('_', ' ', $role)) . "</td></tr>
+                    </table>
+                    <p><strong>Important:</strong> You will be required to change your password upon first login for security purposes.</p>
+                    <p><a href='http://localhost/SupplyRequestSystem/auth/log_in.php' style='background: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Login Now</a></p>
+                    <hr>
+                    <p><small>This is an automated message. Please do not reply to this email.</small></p>
+                ";
+                
+                $mail->AltBody = "
+                    Welcome to WMSU Supply Request System
+                    
+                    Dear {$full_name},
+                    
+                    Your account has been created successfully.
+                    
+                    Email: {$email}
+                    Temporary Password: {$temp_password}
+                    Role: " . ucfirst(str_replace('_', ' ', $role)) . "
+                    
+                    Important: You will be required to change your password upon first login.
+                    
+                    Login at: http://localhost/SupplyRequestSystem/auth/log_in.php
+                ";
+
+                $mail->send();
+                $success = "User successfully added. Temporary password sent to {$email}";
+            } catch (Exception $e) {
+                // Account created but email failed
+                $success = "User successfully added, but email failed to send. Temporary password: {$temp_password}";
+                error_log("Email sending failed: " . $mail->ErrorInfo);
+            }
+        } else {
+            $error = "Failed to create user. Please try again.";
+        }
     }
 }
 
@@ -80,6 +162,7 @@ $users = $conn->query("
     LEFT JOIN college_offices c ON u.college_office_id = c.id
     ORDER BY u.created_at DESC
 ");
+
 ?>
 
 <!DOCTYPE html>
@@ -499,6 +582,20 @@ function showUserDetails(data) {
 <?php include('../includes/admin_sidebar.php'); ?>
 
 <div class="container-main">
+    <?php if (isset($success)): ?>
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle"></i> <?= htmlspecialchars($success) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
+    <?php if (isset($error)): ?>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($error) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
     <div class="page-header">
         <h1 class="page-title">User Management</h1>
         <button class="btn-minimal btn-primary-minimal" data-bs-toggle="modal" data-bs-target="#addUserModal">
@@ -694,8 +791,9 @@ function showUserDetails(data) {
             <input type="email" name="email" class="form-control form-control-minimal" required>
           </div>
           <div class="mt-3">
-            <label class="form-label-minimal">Password</label>
-            <input type="password" name="password" class="form-control form-control-minimal" required>
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle"></i> <strong>Note:</strong> A secure temporary password will be automatically generated and sent to the user's email address. The user will be required to change their password on first login.
+            </div>
           </div>
           <div class="mt-3">
             <label class="form-label-minimal">Role</label>

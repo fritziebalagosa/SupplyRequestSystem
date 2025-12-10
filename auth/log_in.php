@@ -22,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
     if ($user) {
         
         if (password_verify($password, $user['password'])) {
-            // Password is correct. Store session variables.
+            // Password is correct. Regenerate session id and store session variables to prevent fixation.
+            session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['role'] = $user['role'];
             
@@ -33,13 +34,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
             }
 
             // Normal Login Flow (Redirect based on role)
-            if ($user['role'] == 'admin') {
-                header("Location: ../admin/dashboard.php");
-            } else {
-                // Ensure non-admin users have 'requester' role in session
-                $_SESSION['role'] = 'requester';
-                header("Location: ../requesters/dashboard.php");
+            // Use the actual role from the database and redirect accordingly.
+            switch ($user['role']) {
+                case 'admin':
+                    $redirect = '../admin/dashboard.php';
+                    break;
+                case 'dean':
+                    $redirect = '../dean/dashboard.php';
+                    break;
+                case 'head':
+                    $redirect = '../head/dashboard.php';
+                    break;
+                case 'officer':
+                    $redirect = '../officer/dashboard.php';
+                    break;
+                default:
+                    $redirect = '../requesters/dashboard.php';
+                    break;
             }
+            header("Location: $redirect");
             exit();
         } else {
             $error = "Invalid email or password.";
@@ -219,6 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
 
             <button type="submit" name="login_btn" class="login-btn">Sign In</button>
         </form>
+        <p style="text-align:center;margin-top:12px"><a href="forgot_password.php">Forgot Password?</a></p>
     </div>
 </div>
 

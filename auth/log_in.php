@@ -12,6 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
     $email = $_POST['email'];
     $password = $_POST['password'];
     
+    // Debug: Log submission attempt
+    error_log("Login attempt for email: $email");
+    
     // Select required fields from the USERS table
     $stmt = $conn->prepare("SELECT id, password, role, must_change_password FROM users WHERE email = ?");
     $stmt->bind_param('s', $email);
@@ -19,16 +22,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
     $result = $stmt->get_result();
     $user = $result->fetch_assoc();
     
+    // Debug: Log user lookup result
+    error_log("User found: " . ($user ? "YES" : "NO"));
+    if ($user) {
+        error_log("User role: " . $user['role']);
+        error_log("Must change password: " . ($user['must_change_password'] ? "YES" : "NO"));
+    }
+    
     if ($user) {
         
         if (password_verify($password, $user['password'])) {
+            // Debug: Log successful password verification
+            error_log("Password verification: SUCCESS");
+            
             // Password is correct. Regenerate session id and store session variables to prevent fixation.
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['role'] = $user['role'];
             
+            // Debug: Log session variables
+            error_log("Session set - user_id: " . $_SESSION['user_id'] . ", role: " . $_SESSION['role']);
+            
             // === INTERCEPTION LOGIC ===
             if ($user['must_change_password'] == 1) {
+                error_log("Redirecting to new_password.php");
                 header("Location: new_password.php"); 
                 exit();
             }
@@ -46,18 +63,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
                     $redirect = '../head/dashboard.php';
                     break;
                 case 'officer':
+                case 'supply_officer':
                     $redirect = '../officer/dashboard.php';
                     break;
                 default:
                     $redirect = '../requesters/dashboard.php';
                     break;
             }
+            error_log("Redirecting to: $redirect");
             header("Location: $redirect");
             exit();
         } else {
+            error_log("Password verification: FAILED");
             $error = "Invalid email or password.";
         }
     } else {
+        error_log("User lookup: FAILED");
         $error = "Invalid email or password.";
     }
 }

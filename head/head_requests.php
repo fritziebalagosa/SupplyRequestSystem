@@ -105,7 +105,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
 $flash = $_SESSION['flash_message'] ?? '';
 unset($_SESSION['flash_message']);
 
-// fetch pending requests for this head, include item names instead of request title
 $status_to_fetch = ['pending_head', 'pending_officer'];
 $status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
 $sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,

@@ -3,18 +3,32 @@
 // Get current page filename
 $current_page = basename($_SERVER['PHP_SELF']);
 if (!isset($conn)) { @include('../config/db.php'); }
-$alert_count = 0; $alerts = [];
-if (isset($conn) && $conn) {
-    $q = $conn->query("SELECT l.id, l.item_id, i.item_name, i.stock_qty, i.reorder_level, l.created_at
-                       FROM low_stock_alerts l
-                       JOIN items i ON i.id = l.item_id
-                       WHERE l.status = 'open'
-                       ORDER BY l.created_at DESC
-                       LIMIT 10");
-    if ($q) {
-        while ($r = $q->fetch_assoc()) { $alerts[] = $r; }
-        $alert_count = count($alerts);
-    }
+
+// Get notifications for the current user (from notifications table)
+$notif_count = 0;
+$notifications = [];
+if (!empty($_SESSION['user_id'])) {
+  $dbPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/config/db.php';
+  $notifPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/notifications.php';
+  $funcPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/functions.php';
+  if (file_exists($dbPath)) include_once $dbPath;
+  if (file_exists($funcPath)) include_once $funcPath;
+  if (file_exists($notifPath)) include_once $notifPath;
+  if (isset($conn) && function_exists('get_user_notifications') && function_exists('get_unread_notification_count')) {
+    $notifications = get_user_notifications($conn, $_SESSION['user_id'], 6, false);
+    $notif_count = get_unread_notification_count($conn, $_SESSION['user_id']);
+  }
+}
+
+// Also keep low stock alerts for admin
+$alert_count = 0;
+$alerts = [];
+if (!empty($_SESSION['user_id']) && $_SESSION['role'] === 'admin' && isset($conn)) {
+    $stmt = $conn->prepare("SELECT i.item_name, i.stock_qty, i.reorder_level FROM items i WHERE i.stock_qty <= i.reorder_level ORDER BY i.item_name");
+    $stmt->execute();
+    $alerts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $alert_count = count($alerts);
+    $stmt->close();
 }
 ?>
 
@@ -115,6 +129,20 @@ if (isset($conn) && $conn) {
     padding: 0.15rem 0.35rem;
     border-radius: 10px;
     line-height: 1;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  .mark-all-read {
+    color: var(--red-primary) !important;
+    text-decoration: none;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+  }
+
+  .mark-all-read:hover {
+    opacity: 0.8;
+    text-decoration: underline;
   }
 
   /* Profile dropdown */
@@ -275,26 +303,65 @@ if (isset($conn) && $conn) {
 
       <!-- Right side -->
       <ul class="navbar-nav ms-auto">
-        <!-- Notifications -->
-        <li class="nav-item dropdown me-lg-2">
+        <!-- Notifications Dropdown -->
+        <li class="nav-item dropdown">
           <a class="nav-link notification-link" href="#" id="notifDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="bi bi-bell"></i>
-            <?php if ($alert_count > 0): ?><span class="notification-badge"><?= $alert_count ?></span><?php endif; ?>
+            <?php if ($notif_count > 0): ?><span class="notification-badge"><?= $notif_count ?></span><?php endif; ?>
           </a>
           <ul class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="notifDropdown">
+            <li class="dropdown-header d-flex justify-content-between align-items-center px-3 py-2">
+              <strong>Notifications</strong>
+              <?php if ($notif_count > 0): ?>
+                <a href="#" id="markAllRead" class="mark-all-read" style="font-size: 0.8rem;">Mark all as read</a>
+              <?php endif; ?>
+            </li>
+            <?php if (!empty($notifications)): ?>
+              <?php foreach ($notifications as $notification): ?>
+                <li>
+                  <a class="dropdown-item notification-item" href="<?= htmlspecialchars($notification['link'] ?? '#') ?>" data-notif-id="<?= intval($notification['id']) ?>">
+                    <div class="d-flex w-100">
+                      <div class="notification-icon me-2">
+                        <i class="bi bi-bell-fill text-primary"></i>
+                      </div>
+                      <div class="notification-content">
+                        <div class="notification-message"><?= htmlspecialchars($notification['message']) ?></div>
+                        <div class="notification-time text-muted" style="font-size: 0.75rem;">
+                          <?= time_elapsed_string($notification['created_at']) ?>
+                        </div>
+                      </div>
+                    </div>
+                  </a>
+                </li>
+              <?php endforeach; ?>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-center" href="notifications.php">View all notifications</a></li>
+            <?php else: ?>
+              <li class="px-3 py-2 text-muted">No notifications</li>
+            <?php endif; ?>
+          </ul>
+        </li>
+
+        <!-- Low Stock Alerts Dropdown -->
+        <li class="nav-item dropdown">
+          <a class="nav-link notification-link" href="#" id="alertDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-exclamation-triangle"></i>
+            <?php if ($alert_count > 0): ?><span class="notification-badge"><?= $alert_count ?></span><?php endif; ?>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="alertDropdown">
             <li><h6 class="dropdown-header">Low Stock Alerts</h6></li>
             <?php if ($alert_count === 0): ?>
               <li><span class="dropdown-item small text-muted">No low stock alerts</span></li>
             <?php else: foreach ($alerts as $al): ?>
               <li>
-                <a class="dropdown-item small" href="../admin/manage_inventory.php">
+                <a class="dropdown-item small" href="manage_inventory.php">
                   <i class="bi bi-exclamation-triangle"></i>
                   <?= htmlspecialchars($al['item_name']) ?> low (<?= (int)$al['stock_qty'] ?>/<?= (int)$al['reorder_level'] ?>)
                 </a>
               </li>
             <?php endforeach; endif; ?>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item text-center small text-primary" href="../admin/manage_inventory.php">Open Inventory</a></li>
+            <li><a class="dropdown-item text-center small text-primary" href="manage_inventory.php">Open Inventory</a></li>
           </ul>
         </li>
 
@@ -318,5 +385,53 @@ if (isset($conn) && $conn) {
   </div>
 </nav>
 
-<!-- Bootstrap icons (if not already included) -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+<script>
+// Notification mark-as-read handlers for admin navbar
+(function(){
+  const apiUrl = '/SupplyRequestSystem/api/notifications.php';
+
+  function postMarkRead(ids){
+    const fd = new FormData();
+    fd.append('action', 'mark_read');
+    fd.append('ids', JSON.stringify(ids));
+
+    return fetch(apiUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(r => r.json());
+  }
+
+  document.addEventListener('click', function(e){
+    // Mark all as read
+    if (e.target && e.target.id === 'markAllRead'){
+      e.preventDefault();
+      const items = document.querySelectorAll('.notification-item[data-notif-id]');
+      const ids = Array.from(items).map(i => parseInt(i.getAttribute('data-notif-id'))).filter(Boolean);
+      if (!ids.length) return;
+
+      postMarkRead(ids).then(res => {
+        if (res.success) {
+          // remove badge
+          const badge = document.querySelector('.notification-badge');
+          if (badge) badge.remove();
+          // visually mark items as read
+          items.forEach(it => it.classList.add('text-muted'));
+        }
+      }).catch(()=>{});
+    }
+
+    // Single notification click: fire mark-read in background
+    const notif = e.target.closest && e.target.closest('.notification-item');
+    if (notif && notif.dataset && notif.dataset.notifId){
+      const id = parseInt(notif.dataset.notifId);
+      if (!id) return;
+      // decrement badge count optimistically
+      const badge = document.querySelector('.notification-badge');
+      if (badge){
+        const n = parseInt(badge.textContent) || 0;
+        if (n > 1) badge.textContent = n - 1;
+        else badge.remove();
+      }
+      postMarkRead([id]).catch(()=>{});
+    }
+  });
+})();
+</script>

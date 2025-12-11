@@ -12,10 +12,13 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'dean') {
 $flash = $_SESSION['flash_message'] ?? '';
 unset($_SESSION['flash_message']);
 
-// Dean users only fetch pending_dean requests
+// Dean users: display pending requests and completed (received) items
 $college_office_id = $_SESSION['college_office_id'];
 $user_id = $_SESSION['user_id'];
-$status_to_fetch = ['pending_dean', 'pending_head', 'pending_officer'];
+// statuses to display in the list (include completed so received items remain visible)
+$display_statuses = ['pending_dean', 'pending_head', 'pending_officer', 'completed'];
+// statuses that the dean may act on
+$actionable_statuses = ['pending_dean', 'pending_head', 'pending_officer'];
 
 // Handle post actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['request_id'])) {
@@ -39,8 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
     $request = $result->fetch_assoc();
     $request_db_id = $request_id;
 
-    $may_act = false;
-    if ($request && in_array($request['status'], $status_to_fetch)) {
+	$may_act = false;
+	if ($request && in_array($request['status'], $actionable_statuses)) {
         $may_act = true;
     }
     if (!$may_act) {
@@ -101,8 +104,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
     exit;
 }
 
-// fetch pending requests for this dean, include item names// Fetch pending requests for dean's college/office
-$status_to_fetch = ['pending_dean', 'pending_head', 'pending_officer'];
+// fetch pending requests for this dean (actionable statuses only)
+$status_to_fetch = $actionable_statuses;
 $status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
 $sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
                         rs.release_date, rp.created_at as receipt_date,
@@ -113,7 +116,7 @@ $sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.college_office_id = ? AND r.status IN ($status_placeholders)
+						WHERE r.college_office_id = ? AND r.status IN ($status_placeholders)
                         GROUP BY r.id
                         ORDER BY r.created_at DESC";
 $stmt = $conn->prepare($sql);

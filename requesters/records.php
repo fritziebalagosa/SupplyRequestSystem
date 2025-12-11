@@ -24,13 +24,19 @@ if (isset($_SESSION['college_office_id'])) {
 
 if (!$college_office_id) die('Office not configured.');
 
-// fetch only approved/completed requests for this office
+// fetch only approved/completed requests for this office with additional details
 $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
-                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
+                        GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items,
+                        cu.id as creator_id, cu.first_name as creator_fn, cu.last_name as creator_ln, cu.role as creator_role,
+                        rp.created_at as receipt_date,
+                        rs.release_date
                         FROM requests r
                         JOIN users u ON r.requester_id = u.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
+                        LEFT JOIN users cu ON u.created_by = cu.id
+                        LEFT JOIN release_proofs rp ON rp.request_id = r.id
+                        LEFT JOIN release_schedule rs ON rs.request_id = r.id
                         WHERE r.college_office_id = ?
                         AND r.status IN ('approved', 'completed')
                         GROUP BY r.id
@@ -103,11 +109,21 @@ $stmt->close();
             margin-bottom: 0;
         }
 
-        .section-card {
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
             background: white;
-            border-radius: 12px;
-            border: 1px solid var(--gray-200);
-            overflow: hidden;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin: 0;
+        }
+
+        .section-body {
+            padding: 0;
         }
 
         .table-minimal {
@@ -202,10 +218,19 @@ $stmt->close();
             border-color: #bee5eb;
         }
 
-        .badge-forwarded {
+        .badge-completed {
             background-color: #d1ecf1;
             color: #0c5460;
             border-color: #bee5eb;
+        }
+
+        .creator-info {
+            font-size: 0.875rem;
+        }
+
+        .creator-role {
+            color: var(--gray-700);
+            font-style: italic;
         }
 
         .btn-minimal {
@@ -235,18 +260,18 @@ $stmt->close();
 
         .empty-state {
             text-align: center;
-            padding: 3rem 1.5rem;
+            padding: 2rem 1.5rem;
             color: var(--gray-700);
         }
 
         .empty-state i {
-            font-size: 3rem;
+            font-size: 2.5rem;
             color: var(--gray-300);
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
         }
 
         .empty-state p {
-            margin: 0.5rem 0 0 0;
+            margin: 0;
             font-size: 0.9375rem;
         }
 
@@ -325,65 +350,65 @@ $stmt->close();
         </div>
 
         <div class="section-card">
+            <div class="section-header">
+                <h2>Approved & Completed Requests</h2>
+            </div>
+            <div class="section-body">
             <div class="table-responsive">
-                <table class="table table-minimal">
-                    <thead>
-                        <tr>
-                            <th>Request ID</th>
-                            <th>Items</th>
-                            <th>Requester</th>
-                            <th>Status</th>
-                            <th>Date Submitted</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($requests)): ?>
+                <?php if (empty($requests)): ?>
+                    <div class="empty-state">
+                        <i class="bi bi-inbox"></i>
+                        <p>No requests have been submitted from your office yet.</p>
+                    </div>
+                <?php else: ?>
+                    <table class="table table-minimal">
+                        <thead>
                             <tr>
-                                <td colspan="6">
-                                    <div class="empty-state">
-                                        <i class="bi bi-inbox"></i>
-                                        <p>No requests have been submitted from your office yet.</p>
-                                    </div>
-                                </td>
+                                <th>Request ID</th>
+                                <th>Items</th>
+                                <th>Requester</th>
+                                <th>Created By</th>
+                                <th>Status</th>
+                                <th>Date Submitted</th>
+                                <th>Delivery Date</th>
+                                <th>Receipt Status</th>
+                                <th>Actions</th>
                             </tr>
-                        <?php else: foreach ($requests as $r): 
-                            $status = strtolower($r['status']);
-                            $badge_class = 'badge-pending';
-                            
-                            if (strpos($status, 'approved') !== false) {
-                                $badge_class = 'badge-approved';
-                            } elseif (strpos($status, 'rejected') !== false) {
-                                $badge_class = 'badge-rejected';
-                            } elseif (strpos($status, 'returned') !== false) {
-                                $badge_class = 'badge-returned';
-                            } elseif (strpos($status, 'forwarded') !== false) {
-                                $badge_class = 'badge-forwarded';
-                            } elseif (strpos($status, 'pending') !== false) {
+                        </thead>
+                        <tbody>
+                            <?php foreach ($requests as $r):
+                                $status = strtolower($r['status']);
                                 $badge_class = 'badge-pending';
-                            }
-                            
-                            $status_text = ucwords(str_replace('_', ' ', $r['status']));
-                        ?>
+                                if (strpos($status,'approved')!==false) $badge_class='badge-approved';
+                                elseif (strpos($status,'rejected')!==false) $badge_class='badge-rejected';
+                                elseif (strpos($status,'completed')!==false) $badge_class='badge-completed';
+                                elseif (strpos($status,'returned')!==false) $badge_class='badge-returned';
+                                elseif (strpos($status,'forwarded')!==false) $badge_class='badge-forwarded';
+                                $status_text = ucwords(str_replace('_',' ',$r['status']));
+                            ?>
                             <tr>
-                                <td data-label="Request ID">
-                                    <span class="request-id">#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span>
+                                <td><span class="request-id">#<?= htmlspecialchars($r['request_id'] ?: $r['id']) ?></span></td>
+                                <td><span class="items-list" title="<?= htmlspecialchars($r['items'] ?? '—') ?>"><?= htmlspecialchars($r['items'] ?? '—') ?></span></td>
+                                <td><?= htmlspecialchars($r['first_name'].' '.$r['last_name']) ?></td>
+                                <td>
+                                    <?php if ($r['creator_fn']): ?>
+                                        <div class="creator-info">
+                                            <div><?= htmlspecialchars($r['creator_fn'].' '.$r['creator_ln']) ?></div>
+                                            <div class="creator-role"><?= htmlspecialchars(ucfirst($r['creator_role'])) ?></div>
+                                        </div>
+                                    <?php else: ?>
+                                        <span style="color:#616161;">—</span>
+                                    <?php endif; ?>
                                 </td>
-                                <td data-label="Items">
-                                    <span class="items-list" title="<?= htmlspecialchars($r['items'] ?? '—') ?>">
-                                        <?= htmlspecialchars($r['items'] ?? '—') ?>
-                                    </span>
-                                </td>
-                                <td data-label="Requester">
-                                    <span class="requester-name"><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></span>
-                                </td>
-                                <td data-label="Status">
+                                <td>
                                     <span class="badge-minimal <?= $badge_class ?>">
-                                        <?php if (strpos($status, 'approved') !== false): ?>
+                                        <?php if(strpos($status,'approved')!==false): ?>
                                             <i class="bi bi-check-circle"></i>
-                                        <?php elseif (strpos($status, 'rejected') !== false): ?>
+                                        <?php elseif(strpos($status,'rejected')!==false): ?>
                                             <i class="bi bi-x-circle"></i>
-                                        <?php elseif (strpos($status, 'returned') !== false): ?>
+                                        <?php elseif(strpos($status,'completed')!==false): ?>
+                                            <i class="bi bi-check-circle-fill"></i>
+                                        <?php elseif(strpos($status,'returned')!==false): ?>
                                             <i class="bi bi-arrow-return-left"></i>
                                         <?php else: ?>
                                             <i class="bi bi-clock-history"></i>
@@ -391,16 +416,37 @@ $stmt->close();
                                         <?= htmlspecialchars($status_text) ?>
                                     </span>
                                 </td>
-                                <td data-label="Date"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
-                                <td data-label="Actions">
+                                <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
+                                <td>
+                                    <?php if ($r['release_date']): ?>
+                                        <span style="color: var(--gray-700); font-size: 0.875rem;">
+                                            <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($r['receipt_date']): ?>
+                                        <span class="badge-minimal badge-completed">
+                                            <i class="bi bi-check-circle-fill"></i> Received
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge-minimal badge-pending">
+                                            <i class="bi bi-clock-history"></i> Pending
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
                                     <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
-                                        <i class="bi bi-eye"></i> View Details
+                                        <i class="bi bi-eye"></i> View
                                     </a>
                                 </td>
                             </tr>
-                        <?php endforeach; endif; ?>
-                    </tbody>
-                </table>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
             </div>
         </div>
     </div>

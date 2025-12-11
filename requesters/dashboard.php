@@ -2,6 +2,23 @@
 session_start();
 include('../config/db.php');
 
+// Opt-in debug helper: append ?debug=1 to the URL to see session and DB info
+if (isset($_GET['debug']) && $_GET['debug'] === '1') {
+    ini_set('display_errors', 1);
+    error_reporting(E_ALL);
+    echo "<pre>DEBUG INFO:\n";
+    echo "SESSION:\n";
+    var_export($_SESSION);
+    echo "\n\nDB STATUS:\n";
+    if (isset($conn) && $conn instanceof mysqli) {
+        echo 'Connected to DB: OK\n';
+    } else {
+        echo 'DB connection missing or failed\n';
+    }
+    echo "</pre>";
+    exit;
+}
+
 // Generate form token
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $_SESSION['form_token'] = bin2hex(random_bytes(32));

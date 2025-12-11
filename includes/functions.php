@@ -10,8 +10,9 @@ function time_elapsed_string($datetime, $full = false) {
     $ago = new DateTime($datetime);
     $diff = $now->diff($ago);
 
-    $diff->w = floor($diff->d / 7);
-    $diff->d -= $diff->w * 7;
+    // Calculate weeks from days without adding dynamic properties to DateInterval
+    $weeks = (int) floor($diff->d / 7);
+    $days = $diff->d - ($weeks * 7);
 
     $string = array(
         'y' => 'year',
@@ -22,10 +23,22 @@ function time_elapsed_string($datetime, $full = false) {
         'i' => 'minute',
         's' => 'second',
     );
-    
-    foreach ($string as $k => &$v) {
-        if ($diff->$k) {
-            $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : '');
+
+    // Map actual values for each unit (avoid using undefined/dynamic properties)
+    $values = [
+        'y' => $diff->y,
+        'm' => $diff->m,
+        'w' => $weeks,
+        'd' => $days,
+        'h' => $diff->h,
+        'i' => $diff->i,
+        's' => $diff->s,
+    ];
+
+    foreach ($string as $k => $vname) {
+        $count = isset($values[$k]) ? $values[$k] : 0;
+        if ($count) {
+            $string[$k] = $count . ' ' . $vname . ($count > 1 ? 's' : '');
         } else {
             unset($string[$k]);
         }
@@ -126,33 +139,66 @@ function send_approval_notifications($conn, $request_id, $release_date = null, $
     
     // Remove duplicates
     $user_ids = array_unique($user_ids);
-    
-    // Temporarily disable notifications until database tables are created
-    // foreach ($user_ids as $user_id) {
-    //     $notif = $conn->prepare("INSERT INTO notifications (user_id, request_id, message, type, created_at) 
-    //                            VALUES (?, ?, ?, ?, NOW())");
-    //     $notif->bind_param('iiss', $user_id, $request_id, $message, $type);
-    //     $notif->execute();
-    //     $notif->close();
-    // }
-        
-        // Uncomment to send email notifications
-        // if ($user_id == $request['requester_id']) {
-        //     $email = $request['requester_email'];
-        // } elseif (isset($request['dean_id']) && $user_id == $request['dean_id']) {
-        //     $email = $request['dean_email'];
-        // } elseif (isset($request['head_id']) && $user_id == $request['head_id']) {
-        //     $email = $request['head_email'];
-        // } else {
-        //     $email = ''; // Admin email would be fetched here
-        // }
-        // 
-        // if (!empty($email)) {
-        //     $subject = $is_receipt ? "Request Marked as Received" : "Request Approved";
-        //     send_email($email, $subject, $message);
-        // }
-    // } // Close the foreach loop (commented out)
-    
+
+    // Determine notification table structure (some installs use different column names)
+    $notif_columns = [];
+    $cols_res = $conn->query("SHOW COLUMNS FROM notifications");
+    if ($cols_res) {
+        while ($c = $cols_res->fetch_assoc()) {
+            $notif_columns[] = $c['Field'];
+        }
+        $cols_res->free();
+    }
+
+    // Notification type for record keeping
+    $type = $is_receipt ? 'receipt' : 'approval';
+
+    foreach ($user_ids as $user_id) {
+        // Build insert based on available columns
+        if (empty($notif_columns)) continue;
+
+        $insert_cols = [];
+        $placeholders = [];
+        $params = [];
+        $types_str = '';
+
+        if (in_array('user_id', $notif_columns)) {
+            $insert_cols[] = 'user_id'; $placeholders[] = '?'; $params[] = $user_id; $types_str .= 'i';
+        }
+        if (in_array('request_id', $notif_columns)) {
+            $insert_cols[] = 'request_id'; $placeholders[] = '?'; $params[] = $request_id; $types_str .= 'i';
+        }
+        if (in_array('message', $notif_columns)) {
+            $insert_cols[] = 'message'; $placeholders[] = '?'; $params[] = $message; $types_str .= 's';
+        }
+        if (in_array('type', $notif_columns)) {
+            $insert_cols[] = 'type'; $placeholders[] = '?'; $params[] = $type; $types_str .= 's';
+        }
+        if (in_array('link', $notif_columns)) {
+            $insert_cols[] = 'link'; $placeholders[] = '?'; $params[] = $link; $types_str .= 's';
+        }
+        // created_at may be set by default; don't include unless necessary
+
+        if (empty($insert_cols)) continue;
+
+        $sql = "INSERT INTO notifications (" . implode(', ', $insert_cols) . ") VALUES (" . implode(', ', $placeholders) . ")";
+        $notif = $conn->prepare($sql);
+        if ($notif) {
+            // bind params by reference
+            $bind_args = [];
+            $bind_args[] = $types_str;
+            foreach ($params as $k => $v) {
+                $bind_args[] = &$params[$k];
+            }
+            call_user_func_array([$notif, 'bind_param'], $bind_args);
+            $notif->execute();
+            $notif->close();
+        }
+    }
+
+    // Optionally, send email notifications (kept non-blocking/commented out for now)
+    // foreach ($user_ids as $user_id) { ... }
+
     return true;
 }
 

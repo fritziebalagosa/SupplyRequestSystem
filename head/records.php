@@ -37,7 +37,7 @@ $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.fir
                         LEFT JOIN users cu ON u.created_by = cu.id
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN release_schedule rs ON rs.request_id = r.id
-                        WHERE r.college_office_id = ? AND r.status = 'approved'
+                        WHERE r.college_office_id = ? AND (r.status = 'approved' OR r.status = 'completed')
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
 $stmt->bind_param('i', $college_office_id);

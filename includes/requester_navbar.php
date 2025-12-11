@@ -6,24 +6,20 @@ $current = basename($_SERVER['PHP_SELF']);
 $base = '/SupplyRequestSystem/requesters';
 $name = trim(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? ''));
 
-// Get notifications for the current user
+// Get notifications for the current user (from notifications table)
 $notif_count = 0;
 $notifications = [];
 if (!empty($_SESSION['user_id'])) {
-    // Include required files
-    $dbPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/config/db.php';
-    $functionsPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/functions.php';
-    
-    if (file_exists($dbPath) && file_exists($functionsPath)) {
-        include_once $dbPath;
-        include_once $functionsPath;
-        
-        if (isset($conn) && $conn instanceof mysqli && function_exists('get_notifications')) {
-            // Get notifications for requester
-            $notifications = get_notifications($conn, $_SESSION['user_id'], 'requester', null, 5);
-            $notif_count = count($notifications);
-        }
-    }
+  $dbPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/config/db.php';
+  $notifPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/notifications.php';
+  $funcPath = rtrim($_SERVER['DOCUMENT_ROOT'], DIRECTORY_SEPARATOR) . '/SupplyRequestSystem/includes/functions.php';
+  if (file_exists($dbPath)) include_once $dbPath;
+  if (file_exists($funcPath)) include_once $funcPath;
+  if (file_exists($notifPath)) include_once $notifPath;
+  if (isset($conn) && function_exists('get_user_notifications') && function_exists('get_unread_notification_count')) {
+    $notifications = get_user_notifications($conn, $_SESSION['user_id'], 6, false);
+    $notif_count = get_unread_notification_count($conn, $_SESSION['user_id']);
+  }
 }
 
 ?>
@@ -122,13 +118,26 @@ if (!empty($_SESSION['user_id'])) {
     position: absolute;
     top: 0.25rem;
     right: 0.25rem;
-    background-color: var(--red-primary);
+    background: var(--red-primary);
     color: white;
-    font-size: 0.625rem;
-    font-weight: 600;
+    font-size: 0.7rem;
     padding: 0.15rem 0.35rem;
     border-radius: 10px;
-    line-height: 1;
+    min-width: 18px;
+    text-align: center;
+    font-weight: 600;
+  }
+
+  .mark-all-read {
+    color: var(--red-primary) !important;
+    text-decoration: none;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+  }
+
+  .mark-all-read:hover {
+    opacity: 0.8;
+    text-decoration: underline;
   }
 
   /* Profile dropdown */
@@ -259,16 +268,18 @@ if (!empty($_SESSION['user_id'])) {
             <?php endif; ?>
           </a>
           <ul class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="notificationDropdown">
-            <li class="dropdown-header d-flex justify-content-between align-items-center px-3 py-2">
-              <strong>Notifications</strong>
-              <?php if ($notif_count > 0): ?>
-                <a href="#" class="mark-all-read" style="font-size: 0.8rem;">Mark all as read</a>
-              <?php endif; ?>
-            </li>
-            <?php if ($notif_count > 0): ?>
+            <?php if (empty($notifications)): ?>
+              <li class="px-3 py-2 text-muted">No notifications</li>
+            <?php else: ?>
+              <li class="dropdown-header d-flex justify-content-between align-items-center px-3 py-2">
+                <strong>Notifications</strong>
+                <?php if ($notif_count > 0): ?>
+                  <a href="#" id="markAllRead" class="mark-all-read" style="font-size: 0.8rem;">Mark all as read</a>
+                <?php endif; ?>
+              </li>
               <?php foreach ($notifications as $notification): ?>
                 <li>
-                  <a class="dropdown-item notification-item" href="<?= htmlspecialchars($notification['link']) ?>">
+                  <a class="dropdown-item notification-item" href="<?= htmlspecialchars($notification['link'] ?? '#') ?>" data-notif-id="<?= intval($notification['id']) ?>">
                     <div class="d-flex w-100">
                       <div class="notification-icon me-2">
                         <i class="bi bi-bell-fill text-primary"></i>
@@ -284,9 +295,7 @@ if (!empty($_SESSION['user_id'])) {
                 </li>
               <?php endforeach; ?>
               <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item text-center" href="<?= $base ?>/my_requests.php">View all notifications</a></li>
-            <?php else: ?>
-              <li class="px-3 py-2 text-muted">No new notifications</li>
+              <li><a class="dropdown-item text-center" href="<?= $base ?>/notifications.php">View all notifications</a></li>
             <?php endif; ?>
           </ul>
         </div>
@@ -310,3 +319,54 @@ if (!empty($_SESSION['user_id'])) {
     </div>
   </div>
 </nav>
+
+<script>
+// Notification mark-as-read handlers for requester navbar
+(function(){
+  const apiUrl = '/SupplyRequestSystem/api/notifications.php';
+
+  function postMarkRead(ids){
+    const fd = new FormData();
+    fd.append('action', 'mark_read');
+    fd.append('ids', JSON.stringify(ids));
+
+    return fetch(apiUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(r => r.json());
+  }
+
+  document.addEventListener('click', function(e){
+    // Mark all as read
+    if (e.target && e.target.id === 'markAllRead'){
+      e.preventDefault();
+      const items = document.querySelectorAll('.notification-item[data-notif-id]');
+      const ids = Array.from(items).map(i => parseInt(i.getAttribute('data-notif-id'))).filter(Boolean);
+      if (!ids.length) return;
+
+      postMarkRead(ids).then(res => {
+        if (res.success) {
+          // remove badge
+          const badge = document.querySelector('.notification-badge');
+          if (badge) badge.remove();
+          // visually mark items as read
+          items.forEach(it => it.classList.add('text-muted'));
+        }
+      }).catch(()=>{});
+    }
+
+    // Single notification click: fire mark-read in background
+    const notif = e.target.closest && e.target.closest('.notification-item');
+    if (notif && notif.dataset && notif.dataset.notifId){
+      const id = parseInt(notif.dataset.notifId);
+      if (!id) return;
+      // decrement badge count optimistically
+      const badge = document.querySelector('.notification-badge');
+      if (badge){
+        const n = parseInt(badge.textContent) || 0;
+        if (n > 1) badge.textContent = n - 1;
+        else badge.remove();
+      }
+      postMarkRead([id]).catch(()=>{});
+    }
+  });
+})();
+</script>

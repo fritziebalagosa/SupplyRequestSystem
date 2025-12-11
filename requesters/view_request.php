@@ -1,6 +1,7 @@
 <?php
 session_start();
 include('../config/db.php');
+include('../includes/csrf.php');
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../auth/log_in.php');
@@ -41,6 +42,13 @@ $hist_stmt->bind_param("i", $id);
 $hist_stmt->execute();
 $history = $hist_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $hist_stmt->close();
+
+// Check if a receipt has already been submitted
+$receipt_stmt = $conn->prepare("SELECT * FROM release_proofs WHERE request_id = ? ORDER BY created_at DESC LIMIT 1");
+$receipt_stmt->bind_param("i", $id);
+$receipt_stmt->execute();
+$existing_receipt = $receipt_stmt->get_result()->fetch_assoc();
+$receipt_stmt->close();
 
 $message = '';
 // Handle receipt submission
@@ -88,13 +96,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 throw new Exception('Failed to save uploaded file.');
             }
             
-            // Insert release proof
-            $rp = $conn->prepare("INSERT INTO release_proofs (request_id, user_id, image_path, notes, created_at) 
-                                 VALUES (?, ?, ?, ?, NOW())");
+            // Insert release proof: adapt to whichever columns exist in the DB
             $notes = trim($_POST['notes'] ?? '');
-            $rp->bind_param("iiss", $id, $_SESSION['user_id'], $target_path, $notes);
+
+            // Get list of columns in release_proofs
+            $cols_res = $conn->query("SHOW COLUMNS FROM release_proofs");
+            $cols = [];
+            if ($cols_res) {
+                while ($c = $cols_res->fetch_assoc()) {
+                    $cols[] = $c['Field'];
+                }
+                $cols_res->free();
+            }
+
+            $insert_cols = [];
+            $placeholders = [];
+            $params = [];
+            $types = '';
+
+            // request_id is always present in our usage
+            $insert_cols[] = 'request_id';
+            $placeholders[] = '?';
+            $params[] = $id;
+            $types .= 'i';
+
+            // optional: user_id
+            if (in_array('user_id', $cols)) {
+                $insert_cols[] = 'user_id';
+                $placeholders[] = '?';
+                $params[] = $_SESSION['user_id'] ?? null;
+                $types .= 'i';
+            }
+
+            // image path column may be named image_path or photo_path
+            if (in_array('image_path', $cols)) {
+                $insert_cols[] = 'image_path';
+                $placeholders[] = '?';
+                $params[] = $target_path;
+                $types .= 's';
+            } elseif (in_array('photo_path', $cols)) {
+                $insert_cols[] = 'photo_path';
+                $placeholders[] = '?';
+                $params[] = $target_path;
+                $types .= 's';
+            }
+
+            // optional notes column
+            if (in_array('notes', $cols)) {
+                $insert_cols[] = 'notes';
+                $placeholders[] = '?';
+                $params[] = $notes;
+                $types .= 's';
+            }
+
+            // Build and execute prepared statement
+            if (count($insert_cols) === 0) {
+                throw new Exception('Release proofs table has no usable columns');
+            }
+
+            $sql = "INSERT INTO release_proofs (" . implode(', ', $insert_cols) . ") VALUES (" . implode(', ', $placeholders) . ")";
+            $rp = $conn->prepare($sql);
+            if (!$rp) {
+                throw new Exception('Failed to prepare release_proofs insert: ' . $conn->error);
+            }
+
+            // bind params dynamically (call_user_func_array requires references)
+            if (!empty($params)) {
+                $bind_names = [];
+                $bind_names[] = $types;
+                foreach ($params as $k => $v) {
+                    // create a variable reference for each param
+                    $bind_names[] = &$params[$k];
+                }
+                call_user_func_array(array($rp, 'bind_param'), $bind_names);
+            }
+
             if (!$rp->execute()) {
-                throw new Exception('Failed to save receipt information: ' . $conn->error);
+                throw new Exception('Failed to save receipt information: ' . $rp->error);
             }
             $rp->close();
 
@@ -123,8 +201,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Send notifications to all relevant parties
             require_once('../includes/functions.php');
             send_approval_notifications($conn, $id, null, true); // true indicates this is a receipt notification
-            
-            // Set success message and redirect
+
+            // Prepare response data about the saved receipt
+            $receipt_data = [
+                'image_path' => isset($target_path) ? $target_path : null,
+                'notes' => $notes,
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+
+            // If this was an AJAX request, return JSON so the UI can update without reload
+            $is_ajax = (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || (!empty($_POST['ajax']) && $_POST['ajax'] == '1');
+            if ($is_ajax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Receipt submitted successfully.', 'receipt' => $receipt_data, 'status' => 'completed']);
+                exit();
+            }
+
+            // Non-AJAX fallback: set success message and redirect
             $_SESSION['success_message'] = 'Receipt submitted successfully. The request is now marked as completed.';
             header('Location: view_request.php?id=' . $id);
             exit();
@@ -173,6 +266,7 @@ if (strpos($status, 'approved') !== false) {
 }
 
 $status_text = ucwords(str_replace('_', ' ', $request['status']));
+$csrf_token = generate_csrf_token();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -282,7 +376,36 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             font-size: 1.25rem;
         }
 
-        /* Cards */
+        /* Section Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+        }
+
+        .section-header h5 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-body {
+            padding: 1.5rem;
+        }
+
+        /* Info Cards (for backward compatibility) */
         .info-card {
             background: white;
             border-radius: 12px;
@@ -537,7 +660,7 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
 
         <div class="page-header">
             <h1 class="page-title">Request <span class="request-id">#<?= htmlspecialchars($request['request_id'] ?: $request['id']) ?></span></h1>
-            <span class="badge-minimal <?= $badge_class ?>">
+            <span id="statusBadge" class="badge-minimal <?= $badge_class ?>">
                 <?php if (strpos($status, 'approved') !== false): ?>
                     <i class="bi bi-check-circle"></i>
                 <?php elseif (strpos($status, 'rejected') !== false): ?>
@@ -552,8 +675,11 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
         </div>
 
         <!-- Request Details -->
-        <div class="info-card">
-            <h5><i class="bi bi-info-circle"></i> Request Details</h5>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-info-circle"></i> Request Details</h5>
+            </div>
+            <div class="section-body">
             <div class="info-row">
                 <div class="info-label">Description</div>
                 <div class="info-value"><?= nl2br(htmlspecialchars($request['description'] ?? 'No description provided')) ?></div>
@@ -576,11 +702,101 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 <div class="info-label">Date Submitted</div>
                 <div class="info-value"><?= htmlspecialchars(date('M d, Y g:i A', strtotime($request['created_at']))) ?></div>
             </div>
+            
+            <?php
+            // Check if receipt exists for this request
+            $receipt_stmt = $conn->prepare("SELECT * FROM release_proofs WHERE request_id = ? ORDER BY created_at DESC LIMIT 1");
+            $receipt_stmt->bind_param("i", $id);
+            $receipt_stmt->execute();
+            $receipt = $receipt_stmt->get_result()->fetch_assoc();
+            $receipt_stmt->close();
+            
+            // fetch release schedule
+            $schedule_stmt = $conn->prepare("SELECT release_date FROM release_schedule WHERE request_id = ? LIMIT 1");
+            $schedule_stmt->bind_param("i", $id);
+            $schedule_stmt->execute();
+            $schedule = $schedule_stmt->get_result()->fetch_assoc();
+            $schedule_stmt->close();
+            
+            // Add default time for display
+            if ($schedule && $schedule['release_date']) {
+                $schedule['release_time'] = '09:00:00';
+            }
+            
+            if ($receipt): ?>
+                <div class="info-row">
+                    <div class="info-label">Delivery Date</div>
+                    <div class="info-value">
+                        <?php if ($schedule && $schedule['release_date']): ?>
+                            <span style="color: var(--gray-700); font-size: 0.9375rem;">
+                                <i class="bi bi-calendar-check"></i> Scheduled for <?= htmlspecialchars(date('M d, Y', strtotime($schedule['release_date']))) ?>
+                                <?php if ($schedule['release_time']): ?>
+                                    at <?= htmlspecialchars(date('g:i A', strtotime($schedule['release_time']))) ?>
+                                <?php endif; ?>
+                            </span>
+                        <?php elseif ($receipt): ?>
+                            <span style="color: var(--gray-700); font-size: 0.9375rem;">
+                                <i class="bi bi-truck"></i> Delivered on <?= htmlspecialchars(date('M d, Y g:i A', strtotime($receipt['created_at']))) ?>
+                            </span>
+                        <?php else: ?>
+                            <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Receipt Status</div>
+                    <div class="info-value">
+                        <span class="badge-minimal badge-completed">
+                            <i class="bi bi-check-circle-fill"></i> Received
+                        </span>
+                        <div class="mt-2">
+                            <small class="text-muted">Received at: <?= date('M j, Y h:i A', strtotime($receipt['created_at'])) ?></small>
+                        </div>
+                        <?php if (!empty($receipt['image_path'])): ?>
+                            <div class="mt-2">
+                                <a href="<?= htmlspecialchars($receipt['image_path']) ?>" target="_blank" class="file-link">
+                                    <i class="bi bi-image"></i> View Receipt
+                                </a>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($receipt['notes'])): ?>
+                            <div class="mt-2 p-2 bg-light rounded">
+                                <small><?= nl2br(htmlspecialchars($receipt['notes'])) ?></small>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="info-row">
+                    <div class="info-label">Delivery Date</div>
+                    <div class="info-value">
+                        <?php if ($schedule && $schedule['release_date']): ?>
+                            <span style="color: var(--gray-700); font-size: 0.9375rem;">
+                                <i class="bi bi-calendar-check"></i> Scheduled for <?= htmlspecialchars(date('M d, Y', strtotime($schedule['release_date']))) ?>
+                            </span>
+                        <?php else: ?>
+                            <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">Receipt Status</div>
+                    <div class="info-value">
+                        <span class="badge-minimal badge-pending">
+                            <i class="bi bi-clock-history"></i> Pending
+                        </span>
+                    </div>
+                </div>
+            <?php endif; ?>
+            </div>
         </div>
 
         <!-- Requested Items -->
-        <div class="info-card">
-            <h5><i class="bi bi-box-seam"></i> Requested Items</h5>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-box-seam"></i> Requested Items</h5>
+            </div>
+            <div class="section-body">
             <table class="items-table">
                 <thead>
                     <tr>
@@ -635,6 +851,7 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 <?php endif; ?>
                 </tbody>
             </table>
+            </div>
         </div>
 
         <?php
@@ -650,25 +867,65 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
 
         <!-- If returned, show edit/resubmit option -->
         <?php if (strpos($status, 'returned') !== false): ?>
-        <div class="info-card">
-            <h5><i class="bi bi-arrow-return-left"></i> Returned - Action Required</h5>
-            <p style="color: var(--gray-700);">Your request was returned for clarification or changes. Please review the comment and update your request before resubmitting.</p>
-            <?php if ($last_return_comment): ?>
-                <div class="mb-3">
-                    <label class="form-label-minimal">Comment from approver</label>
-                    <div class="form-control-minimal" style="background:transparent;border:none;padding:0;"><?= nl2br(htmlspecialchars($last_return_comment)) ?></div>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-arrow-return-left"></i> Returned - Action Required</h5>
+            </div>
+            <div class="section-body">
+                <p style="color: var(--gray-700);">Your request was returned for clarification or changes. Please review the comment and update your request before resubmitting.</p>
+                <?php if ($last_return_comment): ?>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Comment from approver</label>
+                        <div class="form-control-minimal" style="background:transparent;border:none;padding:0;"><?= nl2br(htmlspecialchars($last_return_comment)) ?></div>
+                    </div>
+                <?php endif; ?>
+                <div class="form-actions">
+                    <a href="edit_request.php?id=<?= $request['id'] ?>" class="btn-minimal btn-primary-minimal"><i class="bi bi-pencil"></i> Edit & Resubmit</a>
                 </div>
-            <?php endif; ?>
-            <div class="form-actions">
-                <a href="edit_request.php?id=<?= $request['id'] ?>" class="btn-minimal btn-primary-minimal"><i class="bi bi-pencil"></i> Edit & Resubmit</a>
             </div>
         </div>
         <?php endif; ?>
 
-        <!-- Confirm Receipt (only if approved) -->
-        <?php if ($request['status'] === 'approved' || $request['status'] === 'completed'): ?>
-        <div class="info-card">
-            <h5><i class="bi bi-check-square"></i> Confirm Receipt</h5>
+        <!-- Confirm Receipt Card -->
+        <?php if ($existing_receipt): ?>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-check-square"></i> Confirm Receipt</h5>
+            </div>
+            <div class="section-body">
+                <div class="alert alert-info" style="background-color: #e7f5ff; border-left: 4px solid #4dabf7; border-radius: 8px;">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Proof of delivery has already been submitted</strong>
+                </div>
+                <?php if (!empty($existing_receipt['image_path'])): ?>
+                    <div class="mt-3">
+                        <a href="<?= htmlspecialchars($existing_receipt['image_path']) ?>" target="_blank" class="file-link">
+                            <i class="bi bi-image"></i> View Receipt Image
+                        </a>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($existing_receipt['notes'])): ?>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <h6 class="mb-2">Notes:</h6>
+                        <small><?= nl2br(htmlspecialchars($existing_receipt['notes'])) ?></small>
+                    </div>
+                <?php endif; ?>
+                <div class="mt-3">
+                    <small class="text-muted">
+                        <i class="bi bi-clock"></i> Submitted on: <?= date('M j, Y h:i A', strtotime($existing_receipt['created_at'])) ?>
+                    </small>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- Confirm Receipt (only if approved and no receipt submitted yet) -->
+        <?php if (($request['status'] === 'approved' || $request['status'] === 'completed') && !$existing_receipt): ?>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-check-square"></i> Confirm Receipt</h5>
+            </div>
+            <div class="section-body">
             <?php 
             // Get release date from release_schedule
             $release_stmt = $conn->prepare("SELECT release_date FROM release_schedule WHERE request_id = ? LIMIT 1");
@@ -720,6 +977,35 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 </div>
             </div>
             
+            <!-- Receipt Success Modal -->
+            <div class="modal fade" id="receiptSuccessModal" tabindex="-1" aria-labelledby="receiptSuccessModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="receiptSuccessModalLabel"><i class="bi bi-check-circle-fill text-success me-2"></i>Receipt Submitted</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p id="receiptSuccessMessage">Your receipt has been submitted successfully.</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <a href="#" id="viewReceiptBtn" class="btn btn-primary" style="display:none;">View Receipt</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Receipt display (populated after successful upload) -->
+            <div id="receiptDisplay" style="display:none; margin-top:1rem;">
+                <h6>Receipt</h6>
+                <div id="receiptCard" style="border:1px solid #e9ecef; padding:1rem; border-radius:6px; background:#fff;">
+                    <img id="receiptImage" src="#" alt="Receipt Image" style="max-width:200px; display:block; margin-bottom:0.5rem;">
+                    <div id="receiptNotes" style="color:#495057;"></div>
+                    <div id="receiptTimestamp" style="color:#6c757d; font-size:0.875rem; margin-top:0.5rem;"></div>
+                </div>
+            </div>
+
             <form method="POST" enctype="multipart/form-data" class="mb-3" id="receiptForm" onsubmit="return validateForm(event)">
                 <input type="hidden" name="action" value="received">
                 <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
@@ -743,8 +1029,11 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
         <?php endif; ?>
 
         <!-- Action History -->
-        <div class="info-card">
-            <h5><i class="bi bi-clock-history"></i> Action History</h5>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-clock-history"></i> Action History</h5>
+            </div>
+            <div class="section-body">
             <div class="timeline" style="margin-top: 1.5rem;">
                 <?php if (!empty($history)): ?>
                     <?php foreach ($history as $action): ?>
@@ -861,22 +1150,17 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Store the release time from PHP to JavaScript
-        const releaseTime = new Date('<?php 
+        // Store the release time from PHP to JavaScript (safe json_encode to avoid linter issues)
+        <?php
+            $release_iso = date('Y-m-d H:i:s', strtotime('+1 day'));
             if (isset($release_datetime) && !empty($release_datetime)) {
-                
-                // Parse the formatted datetime string back to DateTime object
                 $datetime = DateTime::createFromFormat('M d, Y g:i A', $release_datetime);
                 if ($datetime) {
-                    echo $datetime->format('Y-m-d H:i:s');
-                } else {
-                    echo date('Y-m-d H:i:s', strtotime('+1 day'));
+                    $release_iso = $datetime->format('Y-m-d H:i:s');
                 }
-            } else {
-                // Default to current time + 1 day if no release datetime is set
-                echo date('Y-m-d H:i:s', strtotime('+1 day'));
             }
-        ?>');
+        ?>
+        const releaseTime = new Date(<?php echo json_encode($release_iso); ?>);
         
         function formatTimeRemaining(ms) {
             const seconds = Math.floor(ms / 1000);
@@ -919,67 +1203,124 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             return false;
         }
 
+        async function submitReceiptAJAX(form) {
+            const fd = new FormData(form);
+            // mark as ajax for fallback detection
+            fd.append('ajax', '1');
+
+            try {
+                const resp = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: fd
+                });
+                const data = await resp.json();
+                if (data && data.success) {
+                    // Update UI: hide form, show receipt, update badge and show modal
+                    const formEl = document.getElementById('receiptForm');
+                    if (formEl) formEl.style.display = 'none';
+
+                    const receipt = data.receipt || {};
+                    const disp = document.getElementById('receiptDisplay');
+                    if (disp) {
+                        const img = document.getElementById('receiptImage');
+                        const notesEl = document.getElementById('receiptNotes');
+                        const tsEl = document.getElementById('receiptTimestamp');
+                        if (img && receipt.image_path) {
+                            img.src = receipt.image_path;
+                            img.style.display = 'block';
+                        }
+                        if (notesEl) notesEl.innerHTML = receipt.notes ? nl2brEscape(receipt.notes) : '';
+                        if (tsEl) tsEl.textContent = receipt.created_at ? ('Submitted: ' + receipt.created_at) : '';
+                        disp.style.display = 'block';
+                    }
+
+                    // update status badge
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) {
+                        badge.className = 'badge-minimal badge-completed';
+                        badge.innerHTML = '<i class="bi bi-check-circle-fill"></i> Completed';
+                    }
+
+                    // show success modal
+                    const successModal = new bootstrap.Modal(document.getElementById('receiptSuccessModal'));
+                    const viewBtn = document.getElementById('viewReceiptBtn');
+                    if (viewBtn && receipt.image_path) {
+                        viewBtn.href = receipt.image_path;
+                        viewBtn.style.display = 'inline-block';
+                    }
+                    successModal.show();
+                    return true;
+                } else {
+                    alert((data && data.message) ? data.message : 'Submission failed');
+                    return false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert('An error occurred while submitting receipt.');
+                return false;
+            }
+        }
+
+        function nl2brEscape(str) {
+            if (!str) return '';
+            return str.replace(/\n/g, '<br>');
+        }
+
         function validateForm(event) {
             event.preventDefault();
-            
             const fileInput = document.getElementById('photo');
-            
-            // Check if file is selected
             if (!fileInput || !fileInput.files || !fileInput.files[0]) {
                 alert('Please upload a photo of the received items.');
                 return false;
             }
-            
-            // Check file type
             const fileType = fileInput.files[0].type;
             if (!fileType.startsWith('image/')) {
                 alert('Please upload an image file (JPEG, PNG, etc.)');
                 return false;
             }
-            
-            // Check file size (max 5MB)
-            const fileSize = fileInput.files[0].size / 1024 / 1024; // in MB
+            const fileSize = fileInput.files[0].size / 1024 / 1024;
             if (fileSize > 5) {
                 alert('Image size should be less than 5MB');
                 return false;
             }
-            
-            // Check if current time is before release time
             const now = new Date();
             if (releaseTime && now < releaseTime) {
                 return showEarlySubmissionModal(releaseTime);
             }
-            
-            // If all validations pass, submit the form
-            event.target.submit();
-            return true;
+
+            // submit via AJAX
+            submitReceiptAJAX(event.target);
+            return false;
         }
 
-        // Initialize form submission handler
+        // Initialize form submission handler and preview
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('receiptForm');
             if (form) {
                 form.onsubmit = validateForm;
             }
-            
-            // Preview image before upload
-            document.getElementById('photo').addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        const preview = document.getElementById('preview');
-                        if (preview) {
-                            preview.src = event.target.result;
-                            const previewContainer = document.getElementById('photoPreview');
-                            if (previewContainer) {
-                                previewContainer.style.display = 'block';
+
+            const photoEl = document.getElementById('photo');
+            if (photoEl) {
+                photoEl.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            const preview = document.getElementById('preview');
+                            if (preview) {
+                                preview.src = event.target.result;
+                                const previewContainer = document.getElementById('photoPreview');
+                                if (previewContainer) previewContainer.style.display = 'block';
                             }
                         }
+                        reader.readAsDataURL(file);
                     }
-                    reader.readAsDataURL(file);
-                }
-            });
+                });
+            }
         });
     </script>
 </body>

@@ -769,7 +769,22 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             <div class="info-row">
                 <div class="info-label">Attachment</div>
                 <div class="info-value">
-                    <a href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank" class="file-link">
+                    <?php 
+                    $attachment_path = $request['attachment'];
+                    
+                    // Remove '../' prefix to get web-accessible path
+                    if (strpos($attachment_path, '../') === 0) {
+                        $web_path = substr($attachment_path, 3);
+                    } else {
+                        $web_path = $attachment_path;
+                    }
+                    
+                    // Since we're in officer/ directory, we need to go up one level to reach uploads/
+                    if (strpos($web_path, 'uploads/') === 0) {
+                        $web_path = '../' . $web_path;
+                    }
+                    ?>
+                    <a href="<?= htmlspecialchars($web_path) ?>" target="_blank" class="file-link">
                         <i class="bi bi-paperclip"></i> View Attached File
                     </a>
                 </div>

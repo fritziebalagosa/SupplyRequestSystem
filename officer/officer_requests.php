@@ -11,6 +11,16 @@ $user_id = (int)$_SESSION['user_id'];
 $college_office_id = $_SESSION['college_office_id'] ?? null;
 // Officer may operate centrally; proceed even if college_office_id is null.
 
+// Handle search functionality
+$search = $_GET['search'] ?? '';
+$search_where = '';
+$search_params = [];
+if (!empty($search)) {
+    $search_where = " AND (r.request_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR it.item_name LIKE ? OR r.status LIKE ?)";
+    $search_term = '%' . $search . '%';
+    $search_params = array_fill(0, 5, $search_term);
+}
+
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'], $_POST['request_id'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) { $_SESSION['flash_message']='Invalid security token.'; header('Location: officer_requests.php'); exit; }
     $rid=(int)$_POST['request_id'];
@@ -50,9 +60,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'], $_POST['reque
     }
 }
 
-$stmt=$conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name, GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') items FROM requests r JOIN users u ON r.requester_id=u.id LEFT JOIN request_items ri ON ri.request_id=r.id LEFT JOIN items it ON ri.item_id=it.id WHERE r.status='pending_officer' GROUP BY r.id ORDER BY r.created_at DESC");
+$stmt=$conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name, GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') items FROM requests r JOIN users u ON r.requester_id=u.id LEFT JOIN request_items ri ON ri.request_id=r.id LEFT JOIN items it ON ri.item_id=it.id WHERE r.status='pending_officer'$search_where GROUP BY r.id ORDER BY r.created_at DESC");
+if (!empty($search)) {
+    $stmt->bind_param('issss', ...$search_params);
+}
 $stmt->execute(); $pending_res=$stmt->get_result(); $pending_rows = $pending_res? $pending_res->fetch_all(MYSQLI_ASSOC) : [];
-$stmt2=$conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name, GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') items FROM requests r JOIN users u ON r.requester_id=u.id LEFT JOIN request_items ri ON ri.request_id=r.id LEFT JOIN items it ON ri.item_id=it.id WHERE r.status='approved' GROUP BY r.id ORDER BY r.created_at DESC LIMIT 20");
+$stmt2=$conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name, GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') items FROM requests r JOIN users u ON r.requester_id=u.id LEFT JOIN request_items ri ON ri.request_id=r.id LEFT JOIN items it ON ri.item_id=it.id WHERE r.status='approved'$search_where GROUP BY r.id ORDER BY r.created_at DESC LIMIT 20");
+if (!empty($search)) {
+    $stmt2->bind_param('issss', ...$search_params);
+}
 $stmt2->execute(); $forwarded=$stmt2->get_result();
 $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SESSION['flash_message']);
 ?>
@@ -66,8 +82,8 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         :root {
-            --red-primary: #dc3545;
-            --red-dark: #c82333;
+            --red-primary: #e74c3c;
+            --red-dark: #c0392b;
             --red-light: #f8d7da;
             --gray-50: #fafafa;
             --gray-100: #f5f5f5;
@@ -326,6 +342,126 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
             padding: 1.5rem;
         }
 
+        /* Filter Card */
+        .filter-card {
+            background: white;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--gray-700);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .form-control-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-control-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        .form-select-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-select-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        /* Search row (matches design image) */
+        .search-row {
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+          width: 100%;
+        }
+
+        .search-input {
+          flex: 1 1 auto;
+          border: 1px solid var(--gray-300);
+          border-radius: 12px;
+          padding: 0 1rem;
+          font-size: 0.95rem;
+          background: white;
+          transition: all 0.15s ease;
+          height: 52px;
+          display: flex;
+          align-items: center;
+        }
+
+        .search-input:focus {
+          outline: none;
+          border-color: var(--red-primary);
+          box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+        }
+
+        .search-btn {
+          background-color: var(--red-primary);
+          color: white;
+          border: none;
+          padding: 0 1.25rem;
+          min-width: 150px;
+          height: 52px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          font-weight: 600;
+          box-shadow: none;
+          cursor: pointer;
+          line-height: 1;
+        }
+
+        .search-btn:hover {
+          background-color: var(--red-dark);
+          transform: translateY(-1px);
+        }
+
+        /* Buttons */
+        .btn-minimal {
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary-minimal {
+            background-color: var(--red-primary);
+            color: white;
+        }
+
+        .btn-primary-minimal:hover {
+            background-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .container-main {
@@ -334,6 +470,10 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
 
             .page-title {
                 font-size: 1.5rem;
+            }
+
+            .filter-card {
+                padding: 1rem;
             }
 
             .table-minimal thead th,
@@ -357,6 +497,26 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
 <?php include('../includes/officer_navbar.php'); ?>
 <div class="container-main">
   <h1 class="page-title">Requests Awaiting Your Review</h1>
+  
+  <!-- Filter Card -->
+        <div class="filter-card">
+          <form method="GET">
+            <label class="filter-label">Search Records</label>
+            <div class="search-row">
+              <input type="text" name="search" class="search-input" placeholder="Search by Request ID, Items, Requester Name, or Status..." value="<?= htmlspecialchars($search) ?>">
+              <button type="submit" class="search-btn">
+                <i class="bi bi-funnel"></i> Search
+              </button>
+            </div>
+          </form>
+            <?php if (!empty($search)): ?>
+                <div class="mt-2">
+                    <small class="text-muted">Showing results for "<?= htmlspecialchars($search) ?>"</small>
+                    <a href="?" class="ms-2 text-muted"><i class="bi bi-x"></i> Clear</a>
+                </div>
+            <?php endif; ?>
+        </div>
+  
   <?php if($flash): ?><div class="alert alert-info"><?= htmlspecialchars($flash) ?></div><?php endif; ?>
 
   <div class="section-card">

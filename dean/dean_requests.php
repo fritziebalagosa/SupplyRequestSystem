@@ -104,6 +104,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
     exit;
 }
 
+// Handle search functionality
+$search = $_GET['search'] ?? '';
+$search_condition = '';
+$search_params = [];
+
+if (!empty($search)) {
+    $search_condition = "AND (r.request_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR r.status LIKE ? OR it.item_name LIKE ?)";
+    $search_term = "%{$search}%";
+    $search_params = array_fill(0, 5, $search_term);
+}
+
 // fetch pending requests for this dean (actionable statuses only)
 $status_to_fetch = $actionable_statuses;
 $status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
@@ -116,17 +127,21 @@ $sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-						WHERE r.college_office_id = ? AND r.status IN ($status_placeholders)
+						WHERE r.college_office_id = ? AND r.status IN ($status_placeholders) $search_condition
                         GROUP BY r.id
                         ORDER BY r.created_at DESC";
 $stmt = $conn->prepare($sql);
-$param_types = 'i' . str_repeat('s', count($status_to_fetch)); // college_office_id is int, statuses are strings
-$stmt->bind_param($param_types, $college_office_id, ...$status_to_fetch);
+$all_params = array_merge([$college_office_id], $status_to_fetch, $search_params);
+$param_types = 'i' . str_repeat('s', count($status_to_fetch)) . str_repeat('s', count($search_params));
+$stmt->bind_param($param_types, ...$all_params);
 $stmt->execute();
 $results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
 // Also fetch approved requests to notify dean when scheduled for release
+$approved_search_condition = !empty($search) ? "AND (r.request_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR it.item_name LIKE ?)" : '';
+$approved_search_params = !empty($search) ? array_fill(0, 4, $search_term) : [];
+
 $stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
                         rs.release_date, rp.created_at as receipt_date,
                         COALESCE(GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', '), 'No items specified') AS items
@@ -136,13 +151,16 @@ $stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.fi
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.college_office_id = ? AND r.status = 'approved'
+                        WHERE r.college_office_id = ? AND r.status = 'approved' $approved_search_condition
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
-$stmt2->bind_param("i", $college_office_id);
+$approved_params = !empty($search) ? array_merge([$college_office_id], $approved_search_params) : [$college_office_id];
+$approved_param_types = !empty($search) ? 'i' . str_repeat('s', count($approved_search_params)) : 'i';
+$stmt2->bind_param($approved_param_types, ...$approved_params);
 $stmt2->execute();
 $approved = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt2->close();
+
 ?>
 
 <!DOCTYPE html>
@@ -155,8 +173,8 @@ $stmt2->close();
 	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 	<style>
 		:root {
-			--red-primary: #dc3545;
-			--red-dark: #c82333;
+			--red-primary: #e74c3c;
+			--red-dark: #c0392b;
 			--red-light: #f8d7da;
 			--gray-50: #fafafa;
 			--gray-100: #f5f5f5;
@@ -394,39 +412,120 @@ $stmt2->close();
 
 		/* Buttons */
 		.btn-minimal {
-			padding: 0.4rem 0.875rem;
-			border-radius: 6px;
+			padding: 0.625rem 1.25rem;
+			border-radius: 8px;
 			font-weight: 500;
-			font-size: 0.875rem;
-			border: 1px solid;
+			font-size: 0.9375rem;
+			border: none;
 			transition: all 0.2s ease;
-			text-decoration: none;
 			display: inline-flex;
 			align-items: center;
-			gap: 0.375rem;
-		}
-
-		.btn-action-view {
-			background-color: #d1ecf1;
-			color: #0c5460;
-			border-color: #bee5eb;
-		}
-
-		.btn-action-view:hover {
-			background-color: #bee5eb;
-			border-color: #17a2b8;
-			color: #0c5460;
+			gap: 0.5rem;
 		}
 
 		.btn-primary-minimal {
 			background-color: var(--red-primary);
 			color: white;
-			border: none;
-			padding: 0.625rem 1.25rem;
-			font-size: 0.9375rem;
 		}
 
 		.btn-primary-minimal:hover {
+			background-color: var(--red-dark);
+			transform: translateY(-1px);
+		}
+
+		/* Filter Card */
+		.filter-card {
+			background: white;
+			border: 1px solid var(--gray-200);
+			border-radius: 12px;
+			padding: 1.5rem;
+			margin-bottom: 1.5rem;
+		}
+
+		.filter-label {
+			font-size: 0.875rem;
+			font-weight: 500;
+			color: var(--gray-700);
+			margin-bottom: 0.5rem;
+			display: block;
+		}
+
+		.form-control-minimal {
+			border: 1px solid var(--gray-300);
+			border-radius: 8px;
+			padding: 0.625rem 0.875rem;
+			font-size: 0.9375rem;
+			transition: all 0.2s ease;
+			background: white;
+		}
+
+		.form-control-minimal:focus {
+			outline: none;
+			border-color: var(--red-primary);
+			box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+		}
+
+		.form-select-minimal {
+			border: 1px solid var(--gray-300);
+			border-radius: 8px;
+			padding: 0.625rem 0.875rem;
+			font-size: 0.9375rem;
+			transition: all 0.2s ease;
+			background: white;
+		}
+
+		.form-select-minimal:focus {
+			outline: none;
+			border-color: var(--red-primary);
+			box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+		}
+
+		/* Search row (matches design image) */
+		.search-row {
+			display: flex;
+			gap: 1rem;
+			align-items: center;
+			width: 100%;
+		}
+
+		.search-input {
+			flex: 1 1 auto;
+			border: 1px solid var(--gray-300);
+			border-radius: 12px;
+			padding: 0 1rem;
+			font-size: 0.95rem;
+			background: white;
+			transition: all 0.15s ease;
+			height: 52px;
+			display: flex;
+			align-items: center;
+		}
+
+		.search-input:focus {
+			outline: none;
+			border-color: var(--red-primary);
+			box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+		}
+
+		.search-btn {
+			background-color: var(--red-primary);
+			color: white;
+			border: none;
+			padding: 0 1.25rem;
+			min-width: 150px;
+			height: 52px;
+			border-radius: 12px;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 0.5rem;
+			font-weight: 600;
+			box-shadow: none;
+			cursor: pointer;
+			line-height:1;
+		}
+
+		.search-btn:hover {
 			background-color: var(--red-dark);
 			transform: translateY(-1px);
 		}
@@ -499,6 +598,26 @@ $stmt2->close();
 
 		<h1 class="page-title">Requests Awaiting Your Review</h1>
 		<p class="page-subtitle">Review and manage requests for your college/office.</p>
+		
+		<!-- Filter Card -->
+		<div class="filter-card">
+			<form method="GET">
+				<label class="filter-label">Search Records</label>
+				<div class="search-row">
+					<input type="text" name="search" class="search-input" placeholder="Search by Request ID, Items, Requester Name, or Status..." value="<?= htmlspecialchars($search ?? '') ?>">
+					<button type="submit" class="search-btn">
+						<i class="bi bi-funnel"></i> Search
+					</button>
+				</div>
+			</form>
+			<?php if (!empty($search ?? '')): ?>
+				<div class="mt-2">
+					<small class="text-muted">Showing results for "<?= htmlspecialchars($search) ?>"</small>
+					<a href="?" class="ms-2 text-muted"><i class="bi bi-x"></i> Clear</a>
+				</div>
+			<?php endif; ?>
+		</div>
+		
 		<?php if ($flash): ?>
 			<div class="alert alert-info alert-dismissible fade show" role="alert">
 				<div class="d-flex align-items-center">

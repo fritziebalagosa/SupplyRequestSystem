@@ -68,16 +68,31 @@ if (isset($_POST['reject_request'])) {
     exit();
 }
 
+// Handle search functionality
+$search = $_GET['search'] ?? '';
+$search_where = '';
+$search_params = [];
+if (!empty($search)) {
+    $search_where = " AND (r.id LIKE ? OR r.request_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR c.name LIKE ? OR r.status LIKE ?)";
+    $search_term = '%' . $search . '%';
+    $search_params = array_fill(0, 6, $search_term);
+}
+
 // Fetch only requests that are pending final approval
 $query = "
     SELECT r.*, u.first_name, u.middle_name, u.last_name, c.name AS college_office
     FROM requests r
     LEFT JOIN users u ON r.requester_id = u.id
     LEFT JOIN college_offices c ON u.college_office_id = c.id
-    WHERE r.status = 'for_final_approval'
+    WHERE r.status = 'for_final_approval'$search_where
     ORDER BY r.created_at DESC
 ";
-$result = $conn->query($query) or die('Query failed: ' . $conn->error);
+$stmt = $conn->prepare($query);
+if (!empty($search)) {
+    $param_types = str_repeat('s', 6);
+    $stmt->bind_param($param_types, ...$search_params);
+}
+$result = $stmt->execute() ? $stmt->get_result() : false;
 
 if (isset($_GET['debug'])) {
     echo "<pre>DEBUG manage_requests\\nSQL: " . htmlspecialchars($query) . "\\nRows: " . $result->num_rows . "</pre>";
@@ -169,6 +184,146 @@ if (isset($_GET['debug'])) {
             font-weight: 500;
             border: 1px solid;
         }
+
+        /* Filter Card */
+        .filter-card {
+            background: white;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--gray-700);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .form-control-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-control-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        .form-select-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-select-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        /* Search row (matches design image) */
+        .search-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            width: 100%;
+        }
+
+        .search-input {
+            flex: 1 1 auto;
+            border: 1px solid var(--gray-300);
+            border-radius: 12px;
+            padding: 0 1rem;
+            font-size: 0.95rem;
+            background: white;
+            transition: all 0.15s ease;
+            height: 52px;
+            display: flex;
+            align-items: center;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+        }
+
+        .search-btn {
+            background-color: var(--red-primary);
+            color: white;
+            border: none;
+            padding: 0 1.25rem;
+            min-width: 150px;
+            height: 52px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            box-shadow: none;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .search-btn:hover {
+            background-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
+        /* Buttons */
+        .btn-minimal {
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary-minimal {
+            background-color: var(--red-primary);
+            color: white;
+        }
+
+        .btn-primary-minimal:hover {
+            background-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container-main {
+                padding: 1.5rem 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .filter-card {
+                padding: 1rem;
+            }
+
+            .table-minimal thead th,
+            .table-minimal tbody td {
+                padding: 0.75rem 1rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -177,6 +332,25 @@ if (isset($_GET['debug'])) {
 <div class="container-main">
     <div class="page-header">
         <h1 class="page-title">Request Management</h1>
+    </div>
+
+    <!-- Filter Card -->
+    <div class="filter-card">
+        <form method="GET">
+            <label class="filter-label">Search Records</label>
+            <div class="search-row">
+                <input type="text" name="search" class="search-input" placeholder="Search by Request ID, Requester, College/Office, or Status..." value="<?= htmlspecialchars($search) ?>">
+                <button type="submit" class="search-btn">
+                    <i class="bi bi-funnel"></i> Search
+                </button>
+            </div>
+        </form>
+        <?php if (!empty($search)): ?>
+            <div class="mt-2">
+                <small class="text-muted">Showing results for "<?= htmlspecialchars($search) ?>"</small>
+                <a href="?" class="ms-2 text-muted"><i class="bi bi-x"></i> Clear</a>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- Alert Messages -->

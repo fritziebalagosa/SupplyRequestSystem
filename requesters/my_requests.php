@@ -9,17 +9,30 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
+// Handle search functionality
+$search = $_GET['search'] ?? '';
+$search_where = '';
+$search_params = [];
+if (!empty($search)) {
+    $search_where = " AND (r.request_id LIKE ? OR it.item_name LIKE ? OR r.status LIKE ?)";
+    $search_term = '%' . $search . '%';
+    $search_params = array_fill(0, 3, $search_term);
+}
+
 // fetch all requests by this requester that are NOT approved/completed
 $stmt = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at,
                         GROUP_CONCAT(DISTINCT it.item_name SEPARATOR ', ') AS items
                         FROM requests r
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.requester_id = ? 
-                        AND r.status NOT IN ('approved', 'completed')
+                        WHERE r.requester_id = ? AND r.status NOT IN ('approved', 'completed') $search_where
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
-$stmt->bind_param("i", $user_id);
+if (!empty($search)) {
+    $stmt->bind_param('isss', $user_id, ...$search_params);
+} else {
+    $stmt->bind_param("i", $user_id);
+}
 $stmt->execute();
 $results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
@@ -34,8 +47,8 @@ $stmt->close();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         :root {
-            --red-primary: #dc3545;
-            --red-dark: #c82333;
+            --red-primary: #e74c3c;
+            --red-dark: #c0392b;
             --red-light: #f8d7da;
             --gray-50: #fafafa;
             --gray-100: #f5f5f5;
@@ -213,6 +226,107 @@ $stmt->close();
             color: #0c5460;
         }
 
+        /* Filter Card */
+        .filter-card {
+            background: white;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--gray-700);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .form-control-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-control-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        .form-select-minimal {
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.9375rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-select-minimal:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+        }
+
+        /* Search row (matches design image) */
+        .search-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            width: 100%;
+        }
+
+        .search-input {
+            flex: 1 1 auto;
+            border: 1px solid var(--gray-300);
+            border-radius: 12px;
+            padding: 0 1rem;
+            font-size: 0.95rem;
+            background: white;
+            transition: all 0.15s ease;
+            height: 52px;
+            display: flex;
+            align-items: center;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--red-primary);
+            box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+        }
+
+        .search-btn {
+            background-color: var(--red-primary);
+            color: white;
+            border: none;
+            padding: 0 1.25rem;
+            min-width: 150px;
+            height: 52px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            box-shadow: none;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .search-btn i {
+            font-size: 1.05rem;
+        }
+
+        .search-btn:hover {
+            background-color: var(--red-dark);
+            transform: translateY(-1px);
+        }
+
         /* Empty State */
         .empty-state {
             text-align: center;
@@ -258,6 +372,10 @@ $stmt->close();
 
             .page-title {
                 font-size: 1.5rem;
+            }
+
+            .filter-card {
+                padding: 1rem;
             }
 
             .table-minimal thead th,
@@ -307,6 +425,16 @@ $stmt->close();
                 max-width: none;
                 text-align: right;
             }
+            /* Stack search row on small screens */
+            .search-row {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .search-btn {
+                min-width: 0;
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -316,6 +444,25 @@ $stmt->close();
     <div class="container-main">
         <div class="page-header">
             <h1 class="page-title">My Requests</h1>
+        </div>
+
+        <!-- Filter Card -->
+        <div class="filter-card">
+            <form method="GET">
+                <label class="filter-label">Search Records</label>
+                <div class="search-row">
+                    <input type="text" name="search" class="search-input" placeholder="Search by Request ID, Items, Requester Name, or Status..." value="<?= htmlspecialchars($search) ?>">
+                    <button type="submit" class="search-btn">
+                        <i class="bi bi-funnel"></i> Search
+                    </button>
+                </div>
+            </form>
+            <?php if (!empty($search)): ?>
+                <div class="mt-2">
+                    <small class="text-muted">Showing results for "<?= htmlspecialchars($search) ?>"</small>
+                    <a href="?" class="ms-2 text-muted"><i class="bi bi-x"></i> Clear</a>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- Requests Table -->
@@ -399,7 +546,6 @@ $stmt->close();
                 </table>
             </div>
         </div>
-    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>

@@ -688,7 +688,36 @@ $csrf_token = generate_csrf_token();
             <div class="info-row">
                 <div class="info-label">Attachment</div>
                 <div class="info-value">
-                    <a href="<?= htmlspecialchars($request['attachment']) ?>" target="_blank" class="file-link">
+                    <?php
+                    $attachment_path = $request['attachment'];
+
+                    // Prefer using the filename found in the stored path and assume files are in uploads/
+                    $filename = basename($attachment_path);
+
+                    // Build candidate relative paths (relative to this script in requesters/)
+                    $candidate1 = '../uploads/' . $filename; // from requesters/ to uploads/
+                    $candidate2 = 'uploads/' . $filename;    // from site root page (fallback)
+
+                    if (file_exists($candidate1)) {
+                        $web_path = $candidate1;
+                    } elseif (file_exists($candidate2)) {
+                        $web_path = $candidate2;
+                    } else {
+                        // Fallback: try to use stored path but normalize any leading ../
+                        if (strpos($attachment_path, '../') === 0) {
+                            $web_path = substr($attachment_path, 3);
+                        } else {
+                            $web_path = $attachment_path;
+                        }
+
+                        // Ensure relative link points up one level from this directory unless it's already absolute
+                        if (!preg_match('#^(?:/|https?:|\.\./)#', $web_path)) {
+                            $web_path = '../' . ltrim($web_path, '/');
+                        }
+                    }
+                    ?>
+
+                    <a href="<?= htmlspecialchars($web_path) ?>" target="_blank" class="file-link">
                         <i class="bi bi-paperclip"></i> View Attached File
                     </a>
                 </div>

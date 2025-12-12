@@ -9,6 +9,16 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin',
 
 $admin_id = (int)$_SESSION['user_id'];
 
+// Handle search functionality
+$search = $_GET['search'] ?? '';
+$search_where = '';
+$search_params = [];
+if (!empty($search)) {
+    $search_where = " AND (r.id LIKE ? OR r.request_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR r.status LIKE ? OR EXISTS (SELECT 1 FROM request_items ri JOIN items it ON it.id = ri.item_id WHERE ri.request_id = r.id AND it.item_name LIKE ?))";
+    $search_term = '%' . $search . '%';
+    $search_params = array_fill(0, 6, $search_term);
+}
+
 // Ensure helper tables exist
 $conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, release_time TIME DEFAULT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 $conn->query("CREATE TABLE IF NOT EXISTS request_receipts (id INT AUTO_INCREMENT PRIMARY KEY, request_id INT NOT NULL, receiver_id INT NOT NULL, photo_path VARCHAR(255) NOT NULL, status VARCHAR(20) DEFAULT 'submitted', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, confirmed_at DATETIME NULL, confirmed_by INT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -23,10 +33,14 @@ $for_sql = "
   JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved' AND ra.action_by = ?
   LEFT JOIN release_schedule rs ON rs.request_id = r.id
   JOIN users u ON u.id = r.requester_id
-  WHERE r.status = 'approved'
+    WHERE r.status = 'approved'$search_where
   ORDER BY COALESCE(rs.release_date, r.created_at) DESC, r.id DESC";
 $for_stmt = $conn->prepare($for_sql);
-$for_stmt->bind_param('i', $admin_id);
+if (!empty($search)) {
+    $for_stmt->bind_param('issssss', $admin_id, ...$search_params);
+} else {
+    $for_stmt->bind_param('i', $admin_id);
+}
 $for_stmt->execute();
 $for_res = $for_stmt->get_result();
 
@@ -34,18 +48,22 @@ $for_res = $for_stmt->get_result();
 $comp_sql = "
   SELECT r.id, r.request_id, r.created_at, rs.release_date,
          u.first_name, u.last_name,
-         MAX(CASE WHEN rr.status='confirmed' THEN 1 ELSE 0 END) AS has_confirmed,
-         MAX(rr.confirmed_at) AS confirmed_at
+      r.status,
+      MAX(rp.created_at) AS completed_at
   FROM requests r
   JOIN request_actions ra ON ra.request_id = r.id AND ra.action_type = 'approved' AND ra.action_by = ?
   LEFT JOIN release_schedule rs ON rs.request_id = r.id
-  LEFT JOIN request_receipts rr ON rr.request_id = r.id
+  LEFT JOIN release_proofs rp ON rp.request_id = r.id
   JOIN users u ON u.id = r.requester_id
-  GROUP BY r.id
-  HAVING (MAX(CASE WHEN rr.status='confirmed' THEN 1 ELSE 0 END) = 1) OR (MIN(r.status) = 'completed')
-  ORDER BY COALESCE(MAX(rr.confirmed_at), MAX(rs.release_date), MAX(r.created_at)) DESC, r.id DESC";
+  GROUP BY r.id, r.status
+  HAVING (MAX(rp.created_at) IS NOT NULL) OR (r.status = 'completed')$search_where
+  ORDER BY COALESCE(MAX(rp.created_at), MAX(rs.release_date), MAX(r.created_at)) DESC, r.id DESC";
 $comp_stmt = $conn->prepare($comp_sql);
-$comp_stmt->bind_param('i', $admin_id);
+if (!empty($search)) {
+    $comp_stmt->bind_param('issssss', $admin_id, ...$search_params);
+} else {
+    $comp_stmt->bind_param('i', $admin_id);
+}
 $comp_stmt->execute();
 $comp_res = $comp_stmt->get_result();
 ?>
@@ -57,10 +75,22 @@ $comp_res = $comp_stmt->get_result();
   <title>Records - WMSU OSRS</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-  <style>
-    body{background:#fafafa}
-    .container-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
-    .page-title{font-weight:600}
+    <style>
+        :root {
+                --red-primary: #e74c3c;
+                --red-dark: #c0392b;
+                --red-light: #f8d7da;
+                --gray-50: #fafafa;
+                --gray-100: #f5f5f5;
+                --gray-200: #eeeeee;
+                --gray-300: #e0e0e0;
+                --gray-700: #616161;
+                --gray-900: #212121;
+        }
+
+        body{background:#fafafa}
+        .container-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
+        .page-title{font-weight:600}
     /* Reuse manage_requests table styles */
     .section-card{background:#fff;border-radius:12px;border:1px solid #eee;overflow:hidden}
     .table-minimal{margin:0;width:100%}
@@ -78,6 +108,195 @@ $comp_res = $comp_stmt->get_result();
     .empty-state p{margin:0;font-size:.9375rem}
     .page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
     .page-actions{display:flex;gap:0.5rem}
+    
+    /* Search Bar */
+    .search-row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        width: 100%;
+    }
+
+    .search-input {
+        flex: 1 1 auto;
+        border: 1px solid var(--gray-300);
+        border-radius: 12px;
+        padding: 0 1rem;
+        font-size: 0.95rem;
+        background: white;
+        transition: all 0.15s ease;
+        height: 52px;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-input:focus {
+        outline: none;
+        border-color: var(--red-primary);
+        box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+    }
+
+    .search-btn {
+        background-color: var(--red-primary);
+        color: white;
+        border: none;
+        padding: 0 1.25rem;
+        min-width: 150px;
+        height: 52px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        box-shadow: none;
+        cursor: pointer;
+        line-height: 1;
+    }
+
+    .search-btn:hover {
+        background-color: var(--red-dark);
+        transform: translateY(-1px);
+    }
+
+    .filter-card {
+        background: white;
+        border: 1px solid var(--gray-200);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .filter-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--gray-700);
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .form-control-minimal {
+        border: 1px solid var(--gray-300);
+        border-radius: 8px;
+        padding: 0.625rem 0.875rem;
+        font-size: 0.9375rem;
+        transition: all 0.2s ease;
+        background: white;
+    }
+
+    .form-control-minimal:focus {
+        outline: none;
+        border-color: var(--red-primary);
+        box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+    }
+
+    .form-select-minimal {
+        border: 1px solid var(--gray-300);
+        border-radius: 8px;
+        padding: 0.625rem 0.875rem;
+        font-size: 0.9375rem;
+        transition: all 0.2s ease;
+        background: white;
+    }
+
+    .form-select-minimal:focus {
+        outline: none;
+        border-color: var(--red-primary);
+        box-shadow: 0 0 0 0.2rem rgba(231, 76, 60, 0.1);
+    }
+
+    /* Search row (matches design image) */
+    .search-row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        width: 100%;
+    }
+
+    .search-input {
+        flex: 1 1 auto;
+        border: 1px solid var(--gray-300);
+        border-radius: 12px;
+        padding: 0 1rem;
+        font-size: 0.95rem;
+        background: white;
+        transition: all 0.15s ease;
+        height: 52px;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-input:focus {
+        outline: none;
+        border-color: var(--red-primary);
+        box-shadow: 0 0 0 0.12rem rgba(231, 76, 60, 0.08);
+    }
+
+    .search-btn {
+        background-color: var(--red-primary);
+        color: white;
+        border: none;
+        padding: 0 1.25rem;
+        min-width: 150px;
+        height: 52px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        box-shadow: none;
+        cursor: pointer;
+        line-height: 1;
+    }
+
+    .search-btn:hover {
+        background-color: var(--red-dark);
+        transform: translateY(-1px);
+    }
+
+    /* Buttons */
+    .btn-minimal {
+        padding: 0.625rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 0.9375rem;
+        border: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary-minimal {
+        background-color: var(--red-primary);
+        color: white;
+    }
+
+    .btn-primary-minimal:hover {
+        background-color: var(--red-dark);
+        transform: translateY(-1px);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .container-main {
+            padding: 1.5rem 1rem;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+        }
+
+        .filter-card {
+            padding: 1rem;
+        }
+
+        .table-minimal thead th,
+        .table-minimal tbody td {
+            padding: 0.75rem 1rem;
+        }
+    }
   </style>
 </head>
 <body>
@@ -91,6 +310,25 @@ $comp_res = $comp_stmt->get_result();
       </button>
     </div>
   </div>
+
+    <!-- Filter Card -->
+    <div class="filter-card">
+        <form method="GET">
+            <label class="filter-label">Search Records</label>
+            <div class="search-row">
+                <input type="text" name="search" class="search-input" placeholder="Search by Request ID, Items, Requester Name, or Status..." value="<?= htmlspecialchars($search) ?>">
+                <button type="submit" class="search-btn">
+                    <i class="bi bi-funnel"></i> Search
+                </button>
+            </div>
+        </form>
+        <?php if (!empty($search)): ?>
+            <div class="mt-2">
+                <small class="text-muted">Showing results for "<?= htmlspecialchars($search) ?>"</small>
+                <a href="?" class="ms-2 text-muted"><i class="bi bi-x"></i> Clear</a>
+            </div>
+        <?php endif; ?>
+    </div>
 
   <div class="section-card mb-4" data-section-title="For Release">
     <div class="table-responsive">
@@ -169,7 +407,7 @@ $comp_res = $comp_stmt->get_result();
               <td><span class="request-id">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
               <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
               <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?> 9:00 AM</td>
-              <td><?= htmlspecialchars($row['confirmed_at'] ? date('M d, Y', strtotime($row['confirmed_at'])) : '-') ?></td>
+              <td><?= htmlspecialchars($row['completed_at'] ? date('M d, Y', strtotime($row['completed_at'])) : '-') ?></td>
               <td>
                 <span class="badge-minimal" style="background:#d4edda;color:#155724;border-color:#c3e6cb;">
                   <i class="bi bi-check-circle"></i> Completed
@@ -365,7 +603,7 @@ $comp_res = $comp_stmt->get_result();
                     <td><?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></td>
                     <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
                     <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?> 9:00 AM</td>
-                    <td><?= htmlspecialchars($row['confirmed_at'] ? date('M d, Y', strtotime($row['confirmed_at'])) : '-') ?></td>
+                    <td><?= htmlspecialchars($row['completed_at'] ? date('M d, Y', strtotime($row['completed_at'])) : '-') ?></td>
                     <td>COMPLETED</td>
                 </tr>
                 <?php 

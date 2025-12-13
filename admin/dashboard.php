@@ -14,6 +14,21 @@ if ($_SESSION['role'] !== 'admin') {
     exit();
 }
 
+// Handle closing low stock alerts
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'close_alert') {
+    $alert_id = (int)($_POST['alert_id'] ?? 0);
+    if ($alert_id > 0) {
+        $update_stmt = $conn->prepare("UPDATE low_stock_alerts SET status = 'closed' WHERE id = ?");
+        $update_stmt->bind_param("i", $alert_id);
+        $update_stmt->execute();
+        $update_stmt->close();
+        
+        // Redirect to prevent form resubmission
+        header('Location: dashboard.php');
+        exit();
+    }
+}
+
 // Summary counts
 $total_requests = $conn->query("SELECT COUNT(*) AS total FROM requests")->fetch_assoc()['total'];
 $approved_requests = $conn->query("SELECT COUNT(*) AS total FROM requests WHERE status = 'approved'")->fetch_assoc()['total'];
@@ -206,6 +221,39 @@ $activities = $conn->query("
     canvas {
       margin: 0;
     }
+    
+    /* Low Stock Alerts Styles */
+    .btn-action {
+      padding: 0.4rem 0.875rem;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 0.875rem;
+      border: 1px solid;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    
+    .btn-action-success {
+      background: #d4edda;
+      color: #155724;
+      border-color: #c3e6cb;
+    }
+    
+    .btn-action-success:hover {
+      background: #c3e6cb;
+      border-color: #28a745;
+      transform: translateY(-1px);
+    }
+    
+    .badge-danger {
+      background-color: #f8d7da;
+      color: #721c24;
+      border-color: #f5c6cb;
+    }
   </style>
 </head>
 <body>
@@ -328,7 +376,7 @@ $activities = $conn->query("
       </div>
       <div class="section-body">
         <?php if ($officers->num_rows > 0): ?>
-          <div class="table-responsive">
+          <div class="table-responsive-wrapper">
             <table class="table table-minimal">
               <thead>
                 <tr>
@@ -365,6 +413,72 @@ $activities = $conn->query("
       </div>
     </div>
 
+    <!-- Low Stock Alerts -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Low Stock Alerts</h2>
+        <small class="text-muted">Active alerts from officers</small>
+      </div>
+      <div class="section-body">
+        <?php
+        // Get active low stock alerts with item details
+        $alerts_query = $conn->query("
+            SELECT lsa.*, i.item_name, i.stock_qty, i.reorder_level, u.first_name, u.last_name, co.name as office_name
+            FROM low_stock_alerts lsa
+            JOIN items i ON lsa.item_id = i.id
+            JOIN users u ON lsa.sent_by = u.id
+            LEFT JOIN college_offices co ON lsa.college_office_id = co.id
+            WHERE lsa.status = 'open'
+            ORDER BY lsa.created_at DESC
+            LIMIT 10
+        ");
+        ?>
+        <?php if ($alerts_query->num_rows > 0): ?>
+          <div class="table-responsive-wrapper">
+            <table class="table table-minimal">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Current Stock</th>
+                  <th>Reorder Level</th>
+                  <th>Reported By</th>
+                  <th>Office</th>
+                  <th>Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php while ($alert = $alerts_query->fetch_assoc()): ?>
+                  <tr>
+                    <td><?php echo htmlspecialchars($alert['item_name']); ?></td>
+                    <td><span class="badge-minimal badge-danger"><?php echo $alert['stock_qty']; ?></span></td>
+                    <td><?php echo $alert['reorder_level']; ?></td>
+                    <td><?php echo htmlspecialchars($alert['first_name'] . ' ' . $alert['last_name']); ?></td>
+                    <td><?php echo htmlspecialchars($alert['office_name'] ?? 'N/A'); ?></td>
+                    <td><?php echo date("M d, Y", strtotime($alert['created_at'])); ?></td>
+                    <td>
+                      <form method="POST" style="display:inline;" onsubmit="return confirm('Close this alert?')">
+                        <input type="hidden" name="alert_id" value="<?php echo $alert['id']; ?>">
+                        <input type="hidden" name="action" value="close_alert">
+                        <button type="submit" class="btn-action btn-action-success">
+                          <i class="bi bi-check"></i> Close
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <?php endwhile; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php else: ?>
+          <div class="empty-state">
+            <i class="bi bi-check-circle"></i>
+            <p>No active low stock alerts</p>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
+
     <!-- Recent Activities -->
     <div class="section-card">
       <div class="section-header">
@@ -372,7 +486,7 @@ $activities = $conn->query("
       </div>
       <div class="section-body">
         <?php if ($activities->num_rows > 0): ?>
-          <div class="table-responsive">
+          <div class="table-responsive-wrapper">
             <table class="table table-minimal">
               <thead>
                 <tr>

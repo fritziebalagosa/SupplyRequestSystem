@@ -12,6 +12,19 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['officer
 $user_id = $_SESSION['user_id'];
 $college_office_id = $_SESSION['college_office_id'] ?? null;
 
+// Auto-close alerts when stock is replenished (above reorder level)
+$auto_close_stmt = $conn->prepare("
+    UPDATE low_stock_alerts lsa
+    JOIN items i ON lsa.item_id = i.id
+    SET lsa.status = 'closed'
+    WHERE lsa.status = 'open' 
+    AND i.stock_qty > i.reorder_level
+    AND lsa.college_office_id = ?
+");
+$auto_close_stmt->bind_param("i", $college_office_id);
+$auto_close_stmt->execute();
+$auto_close_stmt->close();
+
 // Handle Send Low Stock Alert
 if (isset($_POST['send_alert'])) {
     $item_id = (int)($_POST['item_id'] ?? 0);
@@ -38,6 +51,33 @@ if (isset($_POST['send_alert'])) {
             $ins = $conn->prepare("INSERT INTO low_stock_alerts (item_id, sent_by, college_office_id, status) VALUES (?, ?, ?, 'open')");
             $ins->bind_param('iii', $item_id, $user_id, $college_office_id);
             if ($ins->execute()) {
+                // Get item details for notification
+                $item_stmt = $conn->prepare("SELECT item_name, stock_qty, reorder_level FROM items WHERE id = ?");
+                $item_stmt->bind_param("i", $item_id);
+                $item_stmt->execute();
+                $item = $item_stmt->get_result()->fetch_assoc();
+                $item_stmt->close();
+                
+                if ($item) {
+                    // Send notification to admins
+                    include_once('../includes/notifications.php');
+                    $message = "Low stock alert: Item '{$item['item_name']}' has only {$item['stock_qty']} units remaining (reorder level: {$item['reorder_level']}).";
+                    
+                    // Get admin users
+                    $admin_stmt = $conn->prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active'");
+                    $admin_stmt->execute();
+                    $admin_result = $admin_stmt->get_result();
+                    $admin_ids = [];
+                    while ($admin = $admin_result->fetch_assoc()) {
+                        $admin_ids[] = $admin['id'];
+                    }
+                    $admin_stmt->close();
+                    
+                    if (!empty($admin_ids)) {
+                        send_notification($conn, $admin_ids, $message, 'low_stock', null);
+                    }
+                }
+                
                 $_SESSION['flash_message'] = 'Low-stock alert sent to supply head (admin).';
             } else {
                 $_SESSION['flash_message'] = 'Failed to send alert: ' . htmlspecialchars($ins->error);
@@ -111,7 +151,7 @@ unset($_SESSION['flash_message']);
         }
 
         .container-main {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }
@@ -332,7 +372,7 @@ unset($_SESSION['flash_message']);
 
         /* Empty State */
         .empty-state {
-            padding: 3rem;
+            padding: 2rem 1.5rem;
             text-align: center;
             color: var(--gray-700);
         }

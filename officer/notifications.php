@@ -70,7 +70,7 @@ $unread_count = get_unread_notification_count($conn, $user_id);
         }
 
         .container-main {
-            max-width: 1000px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }

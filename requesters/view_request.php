@@ -183,6 +183,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 throw new Exception('Failed to update request status.');
             }
             $u->close();
+            
+            // Send notifications to all relevant parties
+            require_once('../includes/notifications.php');
+            send_request_status_notification($conn, $id, 'completed', 'Receipt confirmed by requester');
 
             // Log the action
             $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) 

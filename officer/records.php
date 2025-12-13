@@ -85,7 +85,7 @@ $stmt->close();
         }
 
         .container-main {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }
@@ -284,7 +284,6 @@ $stmt->close();
             gap: 1rem;
             align-items: center;
             width: 100%;
-            max-width: 1100px;
         }
 
         .search-input {
@@ -311,7 +310,7 @@ $stmt->close();
             color: white;
             border: none;
             padding: 0 1.25rem;
-            min-width: 220px;
+            min-width: 150px;
             height: 52px;
             border-radius: 12px;
             display: inline-flex;
@@ -356,7 +355,7 @@ $stmt->close();
 
         /* Empty State */
         .empty-state {
-            padding: 3rem;
+            padding: 2rem 1.5rem;
             text-align: center;
             color: var(--gray-700);
         }

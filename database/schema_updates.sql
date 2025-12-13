@@ -2,14 +2,15 @@
 CREATE TABLE IF NOT EXISTS notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    request_id INT NOT NULL,
+    request_id INT DEFAULT NULL,
     message TEXT NOT NULL,
     link VARCHAR(255) DEFAULT NULL,
-    is_read TINYINT(1) DEFAULT 0,
+    type VARCHAR(50) DEFAULT 'general',
+    `read` TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     read_at TIMESTAMP NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE
+    FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Create release_proofs table for receipt images

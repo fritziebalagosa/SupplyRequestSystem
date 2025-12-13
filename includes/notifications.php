@@ -7,7 +7,7 @@
 /**
  * Send notification to specific users
  */
-function send_notification($conn, $user_ids, $message, $type = 'general', $request_id = null) {
+function send_notification($conn, $user_ids, $message, $type = 'general', $request_id = null, $exclude_user_id = null) {
     if (!is_array($user_ids)) {
         $user_ids = [$user_ids];
     }
@@ -15,10 +15,17 @@ function send_notification($conn, $user_ids, $message, $type = 'general', $reque
     // Remove duplicates and filter valid users
     $user_ids = array_unique(array_filter($user_ids));
     
+    // Exclude specified user (usually the current user who performed the action)
+    if ($exclude_user_id !== null) {
+        $user_ids = array_diff($user_ids, [$exclude_user_id]);
+    }
+    
     foreach ($user_ids as $user_id) {
+        // Use 0 for system notifications that don't have a request_id
+        $request_id_value = $request_id ?? 0;
         $stmt = $conn->prepare("INSERT INTO notifications (user_id, request_id, message, type, created_at) 
                                VALUES (?, ?, ?, ?, NOW())");
-        $stmt->bind_param("iiss", $user_id, $request_id, $message, $type);
+        $stmt->bind_param("iiss", $user_id, $request_id_value, $message, $type);
         $stmt->execute();
         $stmt->close();
     }
@@ -27,7 +34,7 @@ function send_notification($conn, $user_ids, $message, $type = 'general', $reque
 /**
  * Send request status notifications (approved/rejected/returned)
  */
-function send_request_status_notification($conn, $request_id, $status, $comment = null) {
+function send_request_status_notification($conn, $request_id, $status, $comment = null, $exclude_user_id = null) {
     // Get request details
     $req_stmt = $conn->prepare("SELECT r.request_id, r.requester_id, r.college_office_id, u.first_name, u.last_name 
                                 FROM requests r 
@@ -81,7 +88,7 @@ function send_request_status_notification($conn, $request_id, $status, $comment 
     }
     $office_stmt->close();
     
-    // Notify admins and supply officers
+    // Notify admins and supply officers (excluding current user if specified)
     $admin_stmt = $conn->prepare("SELECT id FROM users WHERE role IN ('admin', 'supply_officer') AND status = 'active'");
     $admin_stmt->execute();
     $admin_result = $admin_stmt->get_result();
@@ -90,7 +97,7 @@ function send_request_status_notification($conn, $request_id, $status, $comment 
     }
     $admin_stmt->close();
     
-    send_notification($conn, $users_to_notify, $message, $type, $request_id);
+    send_notification($conn, $users_to_notify, $message, $type, $request_id, $exclude_user_id);
 }
 
 /**
@@ -190,6 +197,44 @@ function send_schedule_adjustment_notification($conn, $request_id, $old_datetime
 }
 
 /**
+ * Check stock levels and send low stock alerts for items in a request
+ */
+function check_and_send_low_stock_alerts($conn, $request_id) {
+    // Check if approved_quantity column exists
+    $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
+    $hasApprovedCol = ($colCheck && $colCheck->num_rows > 0);
+    
+    // Build query based on available columns
+    if ($hasApprovedCol) {
+        $sql = "SELECT i.id, i.item_name, i.stock_qty, i.reorder_level, ri.quantity, ri.approved_quantity 
+                FROM items i 
+                JOIN request_items ri ON i.id = ri.item_id 
+                WHERE ri.request_id = ?";
+    } else {
+        $sql = "SELECT i.id, i.item_name, i.stock_qty, i.reorder_level, ri.quantity 
+                FROM items i 
+                JOIN request_items ri ON i.id = ri.item_id 
+                WHERE ri.request_id = ?";
+    }
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('i', $request_id);
+    $stmt->execute();
+    $items = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
+    foreach ($items as $item) {
+        $current_stock = $item['stock_qty'];
+        $reorder_level = $item['reorder_level'] ?? 10; // Default reorder level if not set
+        
+        // Send alert if stock is at or below reorder level
+        if ($current_stock <= $reorder_level) {
+            send_low_stock_notification($conn, $item['id'], $item['item_name'], $current_stock, $reorder_level);
+        }
+    }
+}
+
+/**
  * Send low stock notifications (not called "alerts" for admin)
  */
 function send_low_stock_notification($conn, $item_id, $item_name, $current_stock, $reorder_level) {
@@ -198,13 +243,30 @@ function send_low_stock_notification($conn, $item_id, $item_name, $current_stock
     // Notify admins and supply officers
     $users_to_notify = [];
     
-    $admin_stmt = $conn->prepare("SELECT id FROM users WHERE role IN ('admin', 'supply_officer') AND status = 'active'");
+    // Check for admin role specifically
+    $admin_stmt = $conn->prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active'");
     $admin_stmt->execute();
     $admin_result = $admin_stmt->get_result();
     while ($admin = $admin_result->fetch_assoc()) {
         $users_to_notify[] = $admin['id'];
     }
     $admin_stmt->close();
+    
+    // Also check for supply_officer role
+    $officer_stmt = $conn->prepare("SELECT id FROM users WHERE role = 'supply_officer' AND status = 'active'");
+    $officer_stmt->execute();
+    $officer_result = $officer_stmt->get_result();
+    while ($officer = $officer_result->fetch_assoc()) {
+        $users_to_notify[] = $officer['id'];
+    }
+    $officer_stmt->close();
+    
+    // Debug: Log if we found users to notify
+    if (!empty($users_to_notify)) {
+        error_log("Low stock alert sent to users: " . implode(', ', $users_to_notify) . " for item: $item_name");
+    } else {
+        error_log("No active admin or supply_officer users found for low stock alert for item: $item_name");
+    }
     
     send_notification($conn, $users_to_notify, $message, 'low_stock', null);
 }

@@ -16,102 +16,11 @@ if (isset($conn) && $conn && isset($_SESSION['user_id'])) {
 }
 ?>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-<style>
-  :root{ 
-    --sidebar-width: 240px; 
-    --sidebar-collapsed-width: 64px;
-    --red-primary: #dc3545; 
-    --gray-100: #f5f5f5; 
-  }
-  .admin-sidebar{ 
-    position:fixed; 
-    left:0; 
-    top:0; 
-    height:100vh; 
-    width:var(--sidebar-width); 
-    background:#fff; 
-    border-right:1px solid #eee; 
-    padding:1.25rem 0.75rem; 
-    overflow:auto; 
-    z-index:1030;
-    transition: width 0.3s ease;
-  }
-  .admin-sidebar.collapsed {
-    width: var(--sidebar-collapsed-width);
-  }
-  .admin-sidebar .brand{ 
-    display:flex; 
-    align-items:center; 
-    gap:0.5rem; 
-    padding:0 0.5rem; 
-    margin-bottom:1.25rem; 
-    font-weight:700; 
-    color:var(--red-primary); 
-    font-size:1.05rem;
-    position: relative;
-  }
-  .admin-sidebar .brand i{ font-size:1.2rem; }
-  .admin-sidebar.collapsed .brand span { display: none; }
-  .admin-sidebar .toggle-btn {
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: var(--red-primary);
-    cursor: pointer;
-    padding: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .admin-sidebar.collapsed .toggle-btn {
-    right: -0.5rem;
-  }
-  .admin-sidebar nav{ display:block; }
-  .admin-sidebar .nav-item{ list-style:none; }
-  .admin-sidebar .nav-link{ 
-    display:flex; 
-    align-items:center; 
-    gap:0.6rem; 
-    color:#444; 
-    padding:0.6rem 0.5rem; 
-    border-radius:6px; 
-    font-weight:500; 
-    text-decoration:none;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .admin-sidebar .nav-link i{ font-size:1.05rem; min-width: 1.05rem; }
-  .admin-sidebar.collapsed .nav-link span { opacity: 0; }
-  .admin-sidebar .nav-link:hover{ background:#fafafa; color:var(--red-primary); }
-  .admin-sidebar .nav-link.active{ background:#fff5f5; color:var(--red-primary); }
-  .admin-sidebar .divider{ height:1px; background:#f1f1f1; margin:0.75rem 0; }
-  .admin-sidebar .sidebar-footer{ position:sticky; bottom:1rem; padding:0 0.5rem; }
-  .admin-sidebar.collapsed .sidebar-footer span { display: none; }
-
-  /* push content to the right of the sidebar */
-  .container-main{ 
-    margin-left: calc(var(--sidebar-width) + 20px);
-    transition: margin-left 0.3s ease;
-  }
-  body.sidebar-collapsed .container-main {
-    margin-left: calc(var(--sidebar-collapsed-width) + 20px);
-  }
-
-  @media (max-width: 991.98px){
-    .admin-sidebar{ position:relative; width:100% !important; height:auto; border-right:none; }
-    .container-main{ margin-left:0 !important; padding-top:1rem; }
-    .admin-sidebar.collapsed .nav-link span,
-    .admin-sidebar.collapsed .brand span,
-    .admin-sidebar.collapsed .sidebar-footer span { display: inline; }
-  }
-</style>
+<link rel="stylesheet" href="/SupplyRequestSystem/styles/admin_sidebar.css">
 
 <aside class="admin-sidebar">
   <div class="brand">
-    <i class="bi bi-building"></i> 
+    <img src="/SupplyRequestSystem/wmsulogo.jpg" alt="WMSU OSRS Logo" style="height: 24px;"> 
     <span>WMSU OSRS</span>
     <button class="toggle-btn" onclick="toggleSidebar()">
       <i class="bi bi-chevron-left"></i>
@@ -128,15 +37,36 @@ if (isset($conn) && $conn && isset($_SESSION['user_id'])) {
   </nav>
   <div class="divider"></div>
   <div class="sidebar-footer">
-    <div style="margin-bottom:0.5rem;"><a class="nav-link" href="profile.php"><i class="bi bi-person-circle"></i> <span>Profile</span></a></div>
-    <div style="margin-bottom:0.5rem;">
-      <a class="nav-link" href="../auth/logout.php"><i class="bi bi-box-arrow-right"></i> <span>Logout</span></a>
-    </div>
-    <div style="margin-top:0.5rem;">
-      <a class="nav-link" href="notifications.php"><i class="bi bi-bell"></i> <span>Notifications <?php if($notification_count>0){ echo '<span style="color:var(--red-primary);font-weight:700;">('.$notification_count.')</span>'; } ?></span></a>
-    </div>
+    <ul class="px-0">
+      <li class="nav-item">
+        <a class="nav-link" href="profile.php">
+          <i class="bi bi-person-circle"></i> <span>Profile</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="../auth/logout.php">
+          <i class="bi bi-box-arrow-right"></i> <span>Logout</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="notifications.php">
+          <i class="bi bi-bell"></i> <span>Notifications</span>
+          <?php if($notification_count>0): ?>
+            <span class="sidebar-notification-badge"><?php echo $notification_count; ?></span>
+          <?php endif; ?>
+        </a>
+      </li>
+    </ul>
   </div>
 </aside>
+
+<!-- Mobile menu overlay -->
+<div class="mobile-menu-overlay" onclick="closeMobileMenu()"></div>
+
+<!-- Mobile menu toggle button -->
+<button class="mobile-menu-toggle" onclick="toggleMobileMenu()" style="display: none;">
+  <span class="navbar-toggler-icon"></span>
+</button>
 
 <script>
 function toggleSidebar() {
@@ -160,10 +90,58 @@ function toggleSidebar() {
   localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
 }
 
+// Mobile menu functions
+function toggleMobileMenu() {
+  const sidebar = document.querySelector('.admin-sidebar');
+  const overlay = document.querySelector('.mobile-menu-overlay');
+  const toggleBtn = document.querySelector('.mobile-menu-toggle');
+  const toggleIcon = toggleBtn.querySelector('.navbar-toggler-icon');
+  
+  sidebar.classList.toggle('mobile-open');
+  overlay.classList.toggle('show');
+  
+  // Change icon to X when open
+  if (sidebar.classList.contains('mobile-open')) {
+    toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 4h22M4 4l22 22M4 26l22-22M26 26H4\'/%3e%3c/svg%3e')";
+  } else {
+    toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 7h22M4 15h22M4 23h22\'/%3e%3c/svg%3e')";
+  }
+}
+
+function closeMobileMenu() {
+  const sidebar = document.querySelector('.admin-sidebar');
+  const overlay = document.querySelector('.mobile-menu-overlay');
+  const toggleBtn = document.querySelector('.mobile-menu-toggle');
+  const toggleIcon = toggleBtn.querySelector('.navbar-toggler-icon');
+  
+  sidebar.classList.remove('mobile-open');
+  overlay.classList.remove('show');
+  
+  // Reset icon to hamburger
+  toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 7h22M4 15h22M4 23h22\'/%3e%3c/svg%3e')";
+}
+
+// Handle window resize
+function handleResize() {
+  const width = window.innerWidth;
+  const mobileToggle = document.querySelector('.mobile-menu-toggle');
+  const sidebar = document.querySelector('.admin-sidebar');
+  
+  if (width <= 991.98) {
+    mobileToggle.style.display = 'block';
+    // Close mobile menu if open
+    closeMobileMenu();
+  } else {
+    mobileToggle.style.display = 'none';
+    sidebar.classList.remove('mobile-open');
+    document.querySelector('.mobile-menu-overlay').classList.remove('show');
+  }
+}
+
 // Restore sidebar state on page load
 document.addEventListener('DOMContentLoaded', function() {
   const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-  if (isCollapsed) {
+  if (isCollapsed && window.innerWidth > 991.98) {
     const sidebar = document.querySelector('.admin-sidebar');
     const toggleBtn = document.querySelector('.toggle-btn i');
     const body = document.body;
@@ -173,6 +151,10 @@ document.addEventListener('DOMContentLoaded', function() {
     toggleBtn.classList.remove('bi-chevron-left');
     toggleBtn.classList.add('bi-chevron-right');
   }
+  
+  // Set up resize listener
+  window.addEventListener('resize', handleResize);
+  handleResize(); // Initial check
 });
 </script>
 

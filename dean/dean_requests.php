@@ -18,7 +18,7 @@ $user_id = $_SESSION['user_id'];
 // statuses to display in the list (include completed so received items remain visible)
 $display_statuses = ['pending_dean', 'pending_head', 'pending_officer', 'completed'];
 // statuses that the dean may act on
-$actionable_statuses = ['pending_dean', 'pending_head', 'pending_officer'];
+$actionable_statuses = ['pending_dean', 'pending_head', 'pending_officer', 'for_final_approval'];
 
 // Handle post actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['request_id'])) {
@@ -91,8 +91,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['req
             $ia->bind_param("iisss", $request_db_id, $user_id, $role, $action_type, $comment);
             $ia->execute();
             $ia->close();
-
-            $message = 'Action performed successfully.';
+            
+            // Send notifications to all relevant parties
+            require_once('../includes/notifications.php');
+            send_request_status_notification($conn, $request_db_id, $new_status, $comment, $user_id);
+            
+            $message = 'Request ' . str_replace('_', ' ', $new_status) . ' successfully.';
         }
         $u->close();
     
@@ -433,6 +437,20 @@ $stmt2->close();
 			transform: translateY(-1px);
 		}
 
+		.btn-action-view {
+			background: #d1ecf1;
+			color: #0c5460;
+			border: 1px solid #bee5eb;
+			text-decoration: none;
+		}
+
+		.btn-action-view:hover {
+			background: #bee5eb;
+			border-color: #17a2b8;
+			color: #0c5460;
+			transform: translateY(-1px);
+		}
+
 		/* Filter Card */
 		.filter-card {
 			background: white;
@@ -651,8 +669,6 @@ $stmt2->close();
 								<th>Requester</th>
 								<th>Status</th>
 								<th>Date</th>
-								<th>Delivery Date</th>
-								<th>Receipt Status</th>
 								<th>Actions</th>
 							</tr>
 						</thead>
@@ -664,18 +680,8 @@ $stmt2->close();
 								<td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
 								<td><span class="badge-minimal badge-pending"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $r['status']))) ?></span></td>
 								<td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
-								                                <td>
-                                    <?php if ($r['release_date']): ?>
-                                        <span style="color: var(--gray-700); font-size: 0.875rem;">
-                                            <i class="bi bi-calendar-check"></i> <?= htmlspecialchars(date('M d, Y', strtotime($r['release_date']))) ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <span style="color: var(--gray-400); font-style: italic;">Not scheduled</span>
-                                    <?php endif; ?>
-                                </td>
-								<td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
 								<td>
-									<a class="btn-minimal btn-action-view" href="view_requests.php?id=<?= $r['id'] ?>">
+									<a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
 										<i class="bi bi-eye"></i> View
 									</a>
 								</td>
@@ -707,7 +713,7 @@ $stmt2->close();
 								<th>Request ID</th>
 								<th>Items</th>
 								<th>Requester</th>
-								<th>Date</th>
+								<th>Date Submitted</th>
 								<th>Delivery Date</th>
 								<th>Receipt Status</th>
 								<th>Actions</th>
@@ -723,7 +729,7 @@ $stmt2->close();
 								<td><?= $r['release_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['release_date']))) : '<span class="badge-minimal badge-pending">No Schedule</span>' ?></td>
 								<td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
 								<td>
-									<a class="btn-minimal btn-action-view" href="view_requests.php?id=<?= $r['id'] ?>">
+									<a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
 										<i class="bi bi-eye"></i> View
 									</a>
 								</td>

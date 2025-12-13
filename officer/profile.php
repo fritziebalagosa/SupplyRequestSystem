@@ -63,8 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile - Officer</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <style>
         :root {
             --red-primary: #dc3545;
@@ -92,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         .container-main {
-            max-width: 900px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }
@@ -102,41 +101,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-weight: 600;
             color: var(--gray-900);
             letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-subtitle {
+            color: var(--gray-700);
+            font-size: 0.9375rem;
             margin-bottom: 2rem;
         }
 
-        /* Cards */
-        .info-card {
+        /* Section Cards */
+        .section-card {
             background: white;
             border-radius: 12px;
             border: 1px solid var(--gray-200);
-            padding: 2rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            overflow: hidden;
+            margin-bottom: 2rem;
         }
 
-        .info-card h3 {
-            font-size: 1.5rem;
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
             font-weight: 600;
             color: var(--gray-900);
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            margin: 0;
         }
 
-        /* Alert Messages */
-        .alert {
-            border-radius: 8px;
-            border: none;
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-            margin-bottom: 1.5rem;
-        }
-
-        .alert-info {
-            background-color: #d1ecf1;
-            color: #0c5460;
-            border-color: #bee5eb;
+        .section-body {
+            padding: 1.5rem;
         }
 
         /* Form Elements */
@@ -161,23 +158,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             outline: none;
         }
 
-        /* Buttons */
-        .btn-minimal {
-            padding: 0.625rem 1.25rem;
+        /* Alert Messages */
+        .alert-minimal {
             border-radius: 8px;
-            font-weight: 500;
-            font-size: 0.9375rem;
-            border: none;
-            transition: all 0.2s ease;
-            display: inline-flex;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid;
+            display: flex;
             align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
+            gap: 0.75rem;
         }
 
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .alert-danger {
+            background-color: var(--red-light);
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border-color: #bee5eb;
+        }
+
+        /* Buttons */
         .btn-primary-minimal {
             background-color: var(--red-primary);
             color: white;
+            border: none;
+            padding: 0.625rem 1.25rem;
+            font-size: 0.9375rem;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.2s ease;
         }
 
         .btn-primary-minimal:hover {
@@ -195,8 +214,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 font-size: 1.5rem;
             }
 
-            .info-card {
-                padding: 1.5rem;
+            .section-body {
+                padding: 1.25rem;
             }
         }
     </style>
@@ -204,36 +223,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <?php include('../includes/officer_navbar.php'); ?>
     <div class="container-main">
-        <div class="info-card">
-            <h3><i class="bi bi-person-circle"></i> My Profile</h3>
-            <?php if ($msg): ?>
-                <div class="alert alert-info"><?= htmlspecialchars($msg) ?></div>
-            <?php endif; ?>
-            <form method="POST">
-                <div class="mb-3">
-                    <label class="form-label-minimal">First Name</label>
-                    <input class="form-control form-control-minimal" name="first_name" value="<?= htmlspecialchars($user['first_name']) ?>" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label-minimal">Middle Name</label>
-                    <input class="form-control form-control-minimal" name="middle_name" value="<?= htmlspecialchars($user['middle_name']) ?>">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label-minimal">Last Name</label>
-                    <input class="form-control form-control-minimal" name="last_name" value="<?= htmlspecialchars($user['last_name']) ?>" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label-minimal">Email</label>
-                    <input type="email" class="form-control form-control-minimal" name="email" value="<?= htmlspecialchars($user['email']) ?>" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label-minimal">New Password (leave blank to keep current)</label>
-                    <input type="password" class="form-control form-control-minimal" name="password">
-                </div>
-                <button class="btn-minimal btn-primary-minimal">
-                    <i class="bi bi-check-circle"></i> Save Changes
-                </button>
-            </form>
+        <h1 class="page-title">My Profile</h1>
+        <p class="page-subtitle">Manage your account information and login details.</p>
+        
+        <div class="section-card">
+            <div class="section-header">
+                <h2>Profile Information</h2>
+            </div>
+            <div class="section-body">
+                <?php if ($msg): ?>
+                    <div class="alert-minimal alert-info">
+                        <i class="bi bi-info-circle-fill"></i>
+                        <span><?= htmlspecialchars($msg) ?></span>
+                    </div>
+                <?php endif; ?>
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label-minimal">First Name <span style="color: var(--red-primary);">*</span></label>
+                        <input class="form-control form-control-minimal" name="first_name" value="<?= htmlspecialchars($user['first_name']) ?>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Middle Name</label>
+                        <input class="form-control form-control-minimal" name="middle_name" value="<?= htmlspecialchars($user['middle_name']) ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Last Name <span style="color: var(--red-primary);">*</span></label>
+                        <input class="form-control form-control-minimal" name="last_name" value="<?= htmlspecialchars($user['last_name']) ?>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Email <span style="color: var(--red-primary);">*</span></label>
+                        <input type="email" class="form-control form-control-minimal" name="email" value="<?= htmlspecialchars($user['email']) ?>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">New Password (leave blank to keep current)</label>
+                        <input type="password" class="form-control form-control-minimal" name="password">
+                        <small style="color: var(--gray-700); font-size: 0.8125rem;">Leave blank to keep current password</small>
+                    </div>
+                    <button type="submit" class="btn-primary-minimal">
+                        <i class="bi bi-check-circle"></i> Save Changes
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

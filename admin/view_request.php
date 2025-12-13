@@ -62,6 +62,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $up->bind_param('i', $request_id);
         $up->execute();
         $up->close();
+        
+        // Send notifications to all relevant parties
+        require_once('../includes/notifications.php');
+        send_request_status_notification($conn, $request_id, 'approved', 'Request approved by admin', $user_id);
 
     // Deduct stock: use approved_quantity if the column exists, otherwise use requested quantity
     $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
@@ -74,6 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ded->bind_param('i', $request_id);
     $ded->execute();
     $ded->close();
+    
+    // Check for low stock alerts after deduction
+    check_and_send_low_stock_alerts($conn, $request_id);
 
         // Upsert release schedule with date and time (temporary fix)
         $conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -110,6 +117,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $up->bind_param('i', $request_id);
         $up->execute();
         $up->close();
+        
+        // Send notifications to all relevant parties
+        require_once('../includes/notifications.php');
+        send_request_status_notification($conn, $request_id, 'rejected', $remarks, $user_id);
 
         $role = $_SESSION['role'];
         $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'rejected', ?, NOW())");

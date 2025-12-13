@@ -129,6 +129,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ia->execute();
                 $ia->close();
                 
+                // Send notifications to all relevant parties
+                require_once('../includes/notifications.php');
+                send_request_status_notification($conn, $id, 'resubmitted', $comment);
+                
                 $conn->commit();
                 
                 $_SESSION['flash_message'] = 'Request updated and resubmitted successfully.';

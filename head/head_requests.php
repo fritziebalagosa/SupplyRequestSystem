@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
         $request = $vr->fetch_assoc();
         
         // Check if request can be acted on (must be in pending statuses)
-        if (!in_array($request['status'], ['pending_head', 'pending_officer'])) {
+        if (!in_array($request['status'], ['pending_head', 'pending_officer', 'for_final_approval'])) {
             $message = "This request cannot be acted on in its current state.";
         } else {
         // determine update values
@@ -88,8 +88,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
             $ia->bind_param("iisss", $request_db_id, $user_id, $role, $action_type, $comment);
             $ia->execute();
             $ia->close();
-
-            $message = 'Action performed successfully.';
+            
+            // Send notifications to all relevant parties
+            require_once('../includes/notifications.php');
+            send_request_status_notification($conn, $request_db_id, $new_status, $comment, $user_id);
+            
+            $message = 'Request ' . str_replace('_', ' ', $new_status) . ' successfully.';
         }
         $u->close();
         } // Close the status validation else block
@@ -115,7 +119,7 @@ if (!empty($search)) {
     $search_params = array_fill(0, 5, $search_term);
 }
 
-$status_to_fetch = ['pending_head', 'pending_officer'];
+$status_to_fetch = ['pending_head', 'pending_officer', 'for_final_approval'];
 $status_placeholders = str_repeat('?,', count($status_to_fetch) - 1) . '?';
 $sql = "SELECT r.id, r.request_id, r.status, r.created_at, u.first_name, u.last_name,
                         rs.release_date, rp.created_at as receipt_date,
@@ -150,13 +154,11 @@ $stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.fi
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.college_office_id = ? AND r.status = 'approved'$search_where
+                        WHERE r.status = 'approved'$search_where
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
 if (!empty($search)) {
-    $stmt2->bind_param('issss', $college_office_id, ...$search_params);
-} else {
-    $stmt2->bind_param('i', $college_office_id);
+    $stmt2->bind_param('ssss', ...$search_params);
 }
 $stmt2->execute();
 $approved = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -197,7 +199,7 @@ $stmt2->close();
         }
 
         .container-main {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }
@@ -544,7 +546,7 @@ $stmt2->close();
         <div class="section-card">
             <div class="section-header">
                 <i class="bi bi-clock-history"></i>
-                <h2>Pending Review</h2>
+                <h2>Pending Requests</h2>
             </div>
             <div class="table-responsive">
                 <table class="table table-minimal">
@@ -554,15 +556,13 @@ $stmt2->close();
                             <th>Items</th>
                             <th>Requester</th>
                             <th>Status</th>
-                            <th>Date</th>
-                            <th>Delivery Date</th>
-                            <th>Receipt Status</th>
+                            <th>Date Submitted</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($results)): ?>
-                            <tr><td colspan="8">
+                            <tr><td colspan="6">
                                 <div class="empty-state">
                                     <i class="bi bi-inbox"></i>
                                     <p>No requests pending your review.</p>
@@ -575,8 +575,6 @@ $stmt2->close();
                                 <td><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?></td>
                                 <td><span class="badge-minimal badge-pending"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $r['status']))) ?></span></td>
                                 <td><?= htmlspecialchars(date('M d, Y g:i A', strtotime($r['created_at']))) ?></td>
-                                <td><?= $r['release_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['release_date']))) : '<span class="badge-minimal badge-pending">No Schedule</span>' ?></td>
-                                <td><?= $r['receipt_date'] ? htmlspecialchars(date('M d, Y g:i A', strtotime($r['receipt_date']))) : '<span class="badge-minimal badge-pending">Pending</span>' ?></td>
                                 <td>
                                     <a class="btn-minimal btn-action-view" href="view_request.php?id=<?= $r['id'] ?>">
                                         <i class="bi bi-eye"></i> View

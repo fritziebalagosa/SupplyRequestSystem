@@ -91,8 +91,35 @@ $comp_res = $comp_stmt->get_result();
         body{background:#fafafa}
         .container-main{max-width:1400px;margin:0 auto;padding:2rem 1.5rem}
         .page-title{font-weight:600}
-    /* Reuse manage_requests table styles */
-    .section-card{background:#fff;border-radius:12px;border:1px solid #eee;overflow:hidden}
+    /* Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .section-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            background: white;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--gray-900);
+        }
+
+        .section-header i {
+            color: var(--gray-700);
+        }
     .table-minimal{margin:0;width:100%}
     .table-minimal thead th{background:#fafafa;color:#616161;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:1rem 1.5rem;border:none;border-bottom:1px solid #eee;text-align:center}
     .table-minimal tbody td{padding:1rem 1.5rem;color:#212121;font-size:.9375rem;border:none;border-bottom:1px solid #f5f5f5;vertical-align:middle;text-align:center}
@@ -330,8 +357,12 @@ $comp_res = $comp_stmt->get_result();
         <?php endif; ?>
     </div>
 
-  <div class="section-card mb-4" data-section-title="For Release">
-    <div class="table-responsive">
+        <div class="section-card mb-4">
+            <div class="section-header">
+                <i class="bi bi-clock-history"></i>
+                <h2>For Release</h2>
+            </div>
+            <div class="table-responsive">
       <table class="table table-minimal">
           <thead>
             <tr>
@@ -354,7 +385,7 @@ $comp_res = $comp_stmt->get_result();
               if (!$dispRel) { continue; }
           ?>
             <tr>
-              <td><span class="request-id">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
+              <td><span class="request-id text-danger">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
               <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
               <td><?= htmlspecialchars(date('M d, Y', strtotime($dispRel))) ?> 9:00 AM</td>
               <td><?= htmlspecialchars(date('M d, Y', strtotime($row['created_at']))) ?></td>
@@ -388,8 +419,12 @@ $comp_res = $comp_stmt->get_result();
     </div>
   </div>
 
-  <div class="section-card" data-section-title="Completed Records">
-    <div class="table-responsive">
+        <div class="section-card">
+            <div class="section-header">
+                <i class="bi bi-check-circle"></i>
+                <h2>Completed Requests</h2>
+            </div>
+            <div class="table-responsive">
       <table class="table table-minimal">
           <thead>
             <tr>
@@ -404,7 +439,7 @@ $comp_res = $comp_stmt->get_result();
           <tbody>
           <?php if ($comp_res && $comp_res->num_rows > 0): while($row = $comp_res->fetch_assoc()): ?>
             <tr>
-              <td><span class="request-id">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
+              <td><span class="request-id text-danger">#<?= htmlspecialchars($row['request_id'] ?: $row['id']) ?></span></td>
               <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
               <td><?= $row['release_date'] ? htmlspecialchars(date('M d, Y', strtotime($row['release_date']))) : '—' ?> 9:00 AM</td>
               <td><?= htmlspecialchars($row['completed_at'] ? date('M d, Y', strtotime($row['completed_at'])) : '-') ?></td>
@@ -575,7 +610,7 @@ $comp_res = $comp_stmt->get_result();
             </tbody>
         </table>
         
-        <h2 style="margin-top: 30px;">Completed Records</h2>
+        <h2 style="margin-top: 30px;">Completed Requests</h2>
         <table class="document-table">
             <thead>
                 <tr>

@@ -15,8 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
     // Debug: Log submission attempt
     error_log("Login attempt for email: $email");
     
-    // Select required fields from the USERS table
-    $stmt = $conn->prepare("SELECT id, password, role, must_change_password FROM users WHERE email = ?");
+    // Select required fields from the USERS table (include name/email for navbars)
+    $stmt = $conn->prepare("SELECT id, password, role, must_change_password, first_name, last_name, email FROM users WHERE email = ?");
     $stmt->bind_param('s', $email);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -39,6 +39,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !empty($
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['role'] = $user['role'];
+            // Store user display name pieces so navbars can show the user's name
+            $_SESSION['first_name'] = $user['first_name'] ?? '';
+            $_SESSION['last_name'] = $user['last_name'] ?? '';
+            // Ensure email is available in session as a fallback
+            $_SESSION['email'] = $user['email'] ?? $email;
             
             // Debug: Log session variables
             error_log("Session set - user_id: " . $_SESSION['user_id'] . ", role: " . $_SESSION['role']);

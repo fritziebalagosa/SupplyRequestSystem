@@ -238,34 +238,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 <?php endif; ?>
                 <form method="POST">
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label-minimal">First Name <span style="color: var(--red-primary);">*</span></label>
-                            <input class="form-control form-control-minimal" name="first_name" value="<?= htmlspecialchars($user['first_name']) ?>" required>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label-minimal">Middle Name</label>
-                            <input class="form-control form-control-minimal" name="middle_name" value="<?= htmlspecialchars($user['middle_name']) ?>">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label-minimal">Last Name <span style="color: var(--red-primary);">*</span></label>
-                            <input class="form-control form-control-minimal" name="last_name" value="<?= htmlspecialchars($user['last_name']) ?>" required>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label-minimal">Email <span style="color: var(--red-primary);">*</span></label>
-                            <input type="email" class="form-control form-control-minimal" name="email" value="<?= htmlspecialchars($user['email']) ?>" required>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label-minimal">New Password (leave blank to keep current)</label>
-                            <input type="password" class="form-control form-control-minimal" name="password">
-                            <small style="color: var(--gray-700); font-size: 0.8125rem;">Leave blank to keep current password</small>
-                        </div>
-                        <div class="col-12">
-                            <button type="submit" class="btn-primary-minimal">
-                                <i class="bi bi-check-circle"></i> Save Changes
-                            </button>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">First Name <span style="color: var(--red-primary);">*</span></label>
+                        <input class="form-control form-control-minimal" name="first_name" value="<?= htmlspecialchars($user['first_name']) ?>" required>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Middle Name</label>
+                        <input class="form-control form-control-minimal" name="middle_name" value="<?= htmlspecialchars($user['middle_name']) ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Last Name <span style="color: var(--red-primary);">*</span></label>
+                        <input class="form-control form-control-minimal" name="last_name" value="<?= htmlspecialchars($user['last_name']) ?>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">Email <span style="color: var(--red-primary);">*</span></label>
+                        <input type="email" class="form-control form-control-minimal" name="email" value="<?= htmlspecialchars($user['email']) ?>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label-minimal">New Password (leave blank to keep current)</label>
+                        <input type="password" class="form-control form-control-minimal" name="password">
+                        <small style="color: var(--gray-700); font-size: 0.8125rem;">Leave blank to keep current password</small>
+                    </div>
+                    <button type="submit" class="btn-primary-minimal">
+                        <i class="bi bi-check-circle"></i> Save Changes
+                    </button>
                 </form>
             </div>
         </div>

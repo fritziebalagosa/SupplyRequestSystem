@@ -1,0 +1,133 @@
+/* Sidebar-specific styles (extracted from inline styles)
+   Relies on color variables defined in admin_nav.css; provides fallbacks.
+*/
+:root{
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 64px;
+  --red-primary: #dc3545;
+  --gray-100: #f5f5f5;
+  --gray-200: #eeeeee;
+  --gray-300: #e0e0e0;
+  --gray-700: #616161;
+  --gray-900: #212121;
+}
+
+.admin-sidebar{
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 100vh;
+  width: var(--sidebar-width);
+  background: #fff;
+  border-right: 1px solid var(--gray-200);
+  padding: 0.85rem 0.5rem;
+  overflow-y: auto;
+  z-index: 1030;
+  transition: width 0.22s ease, left 0.22s ease, transform 0.12s ease;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+  box-sizing: border-box;
+}
+
+.admin-sidebar .brand{
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1.1rem 0.6rem 0.9rem; /* added right padding to make room for toggle */
+  margin-bottom: 1.25rem;
+  font-weight: 700;
+  color: var(--red-primary);
+  font-size: 1.05rem;
+  position: relative;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+  min-height: 48px;
+}
+
+.admin-sidebar .brand img{ height: 28px; object-fit: contain; }
+.admin-sidebar .brand span{ white-space: nowrap; }
+
+.admin-sidebar .toggle-btn{
+  position: absolute;
+  right: 10px; /* keep button inside the brand area */
+  top: 50%;
+  transform: translateY(-50%);
+  background: white;
+  border: 1px solid var(--gray-300);
+  border-radius: 50%;
+  color: var(--red-primary);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.admin-sidebar .toggle-btn:hover{ background: var(--red-primary); color: #fff; transform: translateY(-50%) scale(1.05); }
+
+.admin-sidebar nav{ display:block; }
+.admin-sidebar .nav-item{ list-style: none; }
+.admin-sidebar .nav-link{
+  display:flex;
+  align-items:center;
+  gap:0.6rem;
+  color:var(--gray-700);
+  padding:0.5rem 0.6rem;
+  border-radius:8px;
+  font-weight:500;
+  font-size:0.95rem;
+  text-decoration:none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.12s ease, transform 0.12s ease, color 0.12s ease;
+  margin-bottom: 0.35rem;
+  background: transparent;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.admin-sidebar .nav-link i{ font-size:1.05rem; min-width: 1.25rem; text-align: center; color: var(--gray-700); }
+
+.admin-sidebar .nav-link:hover{ background: linear-gradient(135deg, #fafafa 0%, #fff5f5 100%); color:var(--red-primary); transform: translateX(3px); border-color: rgba(220,53,69,0.06); }
+.admin-sidebar .nav-link.active{ background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%); color:var(--red-primary); font-weight:600; box-shadow: 0 2px 8px rgba(220,53,69,0.06); border-color: rgba(220,53,69,0.12); }
+
+.admin-sidebar .divider{ height:1px; background: linear-gradient(90deg, transparent, var(--gray-200), transparent); margin:1.25rem 0; }
+
+.admin-sidebar .sidebar-footer{ position: sticky; bottom: 1rem; padding: 0.6rem; background: white; border-radius: 8px; border: 1px solid var(--gray-200); margin-top: 1rem; }
+
+.sidebar-notification-badge{ background: var(--red-primary); color: #fff; font-size: 0.75rem; padding: 0.12rem 0.35rem; border-radius: 10px; min-width: 20px; text-align: center; font-weight:600; position: absolute; top: 50%; right: 0.9rem; transform: translateY(-50%); z-index:5; }
+
+/* Collapsed state */
+.admin-sidebar.collapsed{ width: var(--sidebar-collapsed-width); overflow: visible; }
+.admin-sidebar.collapsed .brand span, .admin-sidebar.collapsed .nav-link span, .admin-sidebar.collapsed .sidebar-footer span{ display: none; }
+.admin-sidebar.collapsed .toggle-btn{ right: 8px; }
+.admin-sidebar.collapsed .sidebar-notification-badge{ top: 0.4rem; right: 0.28rem; font-size: 0.62rem; padding: 0.08rem 0.22rem; }
+
+/* Center icons and remove extra boxes when collapsed */
+.admin-sidebar.collapsed .nav-link{ justify-content: center; padding: 0.5rem 0; }
+.admin-sidebar.collapsed .nav-link i{ margin: 0; }
+.admin-sidebar.collapsed .sidebar-footer{ padding: 0.35rem; background: transparent; border: none; }
+.admin-sidebar.collapsed .sidebar-footer .nav-link{ padding: 0.35rem 0; background: transparent; border: none; justify-content: center; }
+
+/* Push main content */
+.container-main{ margin-left: var(--sidebar-width); transition: margin-left 0.22s ease; }
+body.sidebar-collapsed .container-main{ margin-left: var(--sidebar-collapsed-width); }
+
+/* Responsive rules */
+@media (max-width: 1199.98px){ .container-main{ margin-left: calc(var(--sidebar-width) + 12px); } body.sidebar-collapsed .container-main{ margin-left: calc(var(--sidebar-collapsed-width) + 12px); } }
+
+@media (max-width: 991.98px){
+  .admin-sidebar{ left: -100%; width: var(--sidebar-width) !important; transition: left 0.25s ease; }
+  .admin-sidebar.mobile-open{ left: 0; }
+  .mobile-menu-overlay{ display:none; position:fixed; inset:0; background: rgba(0,0,0,0.45); z-index:1040; }
+  .mobile-menu-overlay.show{ display:block; }
+  .mobile-menu-toggle{ display:block; position:fixed; top:0.75rem; left:1rem; z-index:1030; background: transparent; border:1px solid #e0e0e0; border-radius:4px; padding:0.35rem 0.5rem; font-size:1rem; }
+  .mobile-menu-toggle .navbar-toggler-icon{ display:inline-block; width:1.5em; height:1.5em; background-repeat:no-repeat; background-position:center; background-size:100%; }
+  .container-main{ margin-left: 0 !important; padding: 3.8rem 1rem 1rem; }
+  .admin-sidebar.collapsed .toggle-btn{ display: none; }
+}
+
+@media (max-width: 576px){ .container-main{ padding: 3.8rem 0.75rem 0.75rem; } .mobile-menu-toggle{ top:0.5rem; left:0.75rem; } }

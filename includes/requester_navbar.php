@@ -233,7 +233,7 @@ if (!empty($_SESSION['user_id'])) {
 <nav class="navbar navbar-expand-lg navbar-custom">
   <div class="container-fluid px-4">
     <a class="navbar-brand" href="/SupplyRequestSystem/index.php">
-      <i class="bi bi-building"></i> WMSU OSRS
+      <img src="/SupplyRequestSystem/wmsulogo.jpg" alt="WMSU OSRS Logo" style="height: 30px; margin-right: 0.5rem;"> WMSU OSRS
     </a>
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarLeft">

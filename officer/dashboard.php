@@ -263,7 +263,7 @@ $recent_stmt->close();
         }
 
         .empty-state {
-            padding: 3rem;
+            padding: 2rem 1.5rem;
             text-align: center;
             color: var(--gray-700);
         }

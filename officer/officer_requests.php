@@ -46,7 +46,20 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'], $_POST['reque
         $final = trim($auto . ($remarks_forward?('Officer remark: '.$remarks_forward):''));
         $u=$conn->prepare("UPDATE requests SET status='for_final_approval' WHERE id=?");
         $u->bind_param('i',$rid); $ok=$u->execute(); $u->close();
-        if($ok){ $ia=$conn->prepare("INSERT INTO request_actions (request_id,action_by,role,action_type,comment,created_at) VALUES (?,?,?,?,?,NOW())"); $role=$_SESSION['role']; $type='forwarded_to_admin'; $ia->bind_param('iisss',$rid,$user_id,$role,$type,$final); $ia->execute(); $ia->close(); $_SESSION['flash_message']='Request forwarded to Supply Head for final approval.'; }
+        if($ok){ 
+            $ia=$conn->prepare("INSERT INTO request_actions (request_id,action_by,role,action_type,comment,created_at) VALUES (?,?,?,?,?,NOW())"); 
+            $role=$_SESSION['role']; 
+            $type='forwarded_to_admin'; 
+            $ia->bind_param('iisss',$rid,$user_id,$role,$type,$final); 
+            $ia->execute(); 
+            $ia->close();
+            
+            // Send notifications to all relevant parties
+            require_once('../includes/notifications.php');
+            send_request_status_notification($conn, $rid, 'for_final_approval', $final, $user_id);
+            
+            $_SESSION['flash_message']='Request forwarded to Supply Head for final approval.'; 
+        }
         else { $_SESSION['flash_message']='Failed to forward request.'; }
         header('Location: officer_requests.php'); exit;
     }
@@ -54,7 +67,20 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'], $_POST['reque
         if($remarks_reject===''){ $_SESSION['flash_message']='Please provide a remark when rejecting.'; header('Location: officer_requests.php'); exit; }
         $u=$conn->prepare("UPDATE requests SET status='rejected' WHERE id=?");
         $u->bind_param('i',$rid); $ok=$u->execute(); $u->close();
-        if($ok){ $ia=$conn->prepare("INSERT INTO request_actions (request_id,action_by,role,action_type,comment,created_at) VALUES (?,?,?,?,?,NOW())"); $role=$_SESSION['role']; $type='rejected'; $ia->bind_param('iisss',$rid,$user_id,$role,$type,$remarks_reject); $ia->execute(); $ia->close(); $_SESSION['flash_message']='Request rejected and returned to dean/head.'; }
+        if($ok){ 
+            $ia=$conn->prepare("INSERT INTO request_actions (request_id,action_by,role,action_type,comment,created_at) VALUES (?,?,?,?,?,NOW())"); 
+            $role=$_SESSION['role']; 
+            $type='rejected'; 
+            $ia->bind_param('iisss',$rid,$user_id,$role,$type,$remarks_reject); 
+            $ia->execute(); 
+            $ia->close();
+            
+            // Send notifications to all relevant parties
+            require_once('../includes/notifications.php');
+            send_request_status_notification($conn, $rid, 'rejected', $remarks_reject, $user_id);
+            
+            $_SESSION['flash_message']='Request rejected and returned to dean/head.'; 
+        }
         else { $_SESSION['flash_message']='Failed to reject request.'; }
         header('Location: officer_requests.php'); exit;
     }
@@ -107,7 +133,7 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
         }
 
         .container-main {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem 1.5rem;
         }
@@ -298,7 +324,7 @@ $csrf=generate_csrf_token(); $flash=$_SESSION['flash_message'] ?? ''; unset($_SE
         }
 
         .empty-state {
-            padding: 3rem;
+            padding: 2rem 1.5rem;
             text-align: center;
             color: var(--gray-700);
         }

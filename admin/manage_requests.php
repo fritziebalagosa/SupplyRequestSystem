@@ -20,9 +20,15 @@ if (isset($_POST['approve_request'])) {
     }
 
     // Update request status and release date
-    $stmt = $conn->prepare("UPDATE requests SET status = 'approved', release_date = ? WHERE id = ?");
-    $stmt->bind_param("si", $release_date, $request_id);
+    $stmt = $conn->prepare("UPDATE requests SET status = 'approved' WHERE id = ?");
+    $stmt->bind_param("i", $request_id);
     $stmt->execute();
+
+    // Store release schedule
+    $schedule_stmt = $conn->prepare("INSERT INTO release_schedule (request_id, release_date) VALUES (?, ?)");
+    $schedule_stmt->bind_param("is", $request_id, $release_date);
+    $schedule_stmt->execute();
+    $schedule_stmt->close();
 
     // Deduct stock quantities (use approved_quantity when column exists)
     $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
@@ -35,7 +41,20 @@ if (isset($_POST['approve_request'])) {
     $update_stock->bind_param("i", $request_id);
     $update_stock->execute();
 
-    $_SESSION['success'] = "Request #$request_id approved and stock updated.";
+    // Send notifications to all relevant parties (excluding the admin who approved)
+    require_once('../includes/notifications.php');
+    $admin_id = $_SESSION['user_id'] ?? null;
+    send_request_status_notification($conn, $request_id, 'approved', null, $admin_id);
+
+    // Log the approval action
+    $role = 'supply_head';
+    $remarks = "Approved with release scheduled for " . date('M d, Y', strtotime($release_date));
+    $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'approved', ?, NOW())");
+    $ia->bind_param("iiss", $request_id, $admin_id, $role, $remarks);
+    $ia->execute();
+    $ia->close();
+
+    $_SESSION['success'] = "Request #$request_id approved and scheduled for release.";
     header("Location: manage_requests.php");
     exit();
 }
@@ -328,7 +347,6 @@ if (isset($_GET['debug'])) {
 </head>
 <body>
 <?php include('../includes/admin_sidebar.php'); ?>
-
 <div class="container-main">
     <div class="page-header">
         <h1 class="page-title">Request Management</h1>

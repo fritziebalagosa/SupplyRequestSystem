@@ -442,8 +442,6 @@ $stmt->close();
 <body>
     <?php include('../includes/head_dean_navbar.php'); ?>
     <div class="container-main">
-        <h1 class="page-title">All Records</h1>
-        <p class="page-subtitle">Complete history of all requests for your office, regardless of status</p>
 
         <!-- Filter Card -->
         <div class="filter-card">
@@ -465,6 +463,9 @@ $stmt->close();
         </div>
 
         <div class="section-card">
+            <div class="section-header">
+                <h2>Approved & Completed Requests</h2>
+            </div>
             <div class="section-body">
             <div class="table-responsive">
                 <?php if (empty($requests)): ?>
@@ -559,6 +560,7 @@ $stmt->close();
                         </tbody>
                     </table>
                 <?php endif; ?>
+            </div>
             </div>
         </div>
     </div>

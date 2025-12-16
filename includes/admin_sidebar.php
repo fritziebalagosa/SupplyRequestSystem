@@ -61,11 +61,11 @@ if (isset($conn) && $conn && isset($_SESSION['user_id'])) {
 </aside>
 
 <!-- Mobile menu overlay -->
-<div class="mobile-menu-overlay" onclick="closeMobileMenu()"></div>
+<div class="mobile-menu-overlay"></div>
 
 <!-- Mobile menu toggle button -->
-<button class="mobile-menu-toggle" onclick="toggleMobileMenu()" style="display: none;">
-  <span class="navbar-toggler-icon"></span>
+<button class="mobile-menu-toggle" onclick="toggleMobileMenu(event)" style="display: none;" aria-label="Toggle mobile menu">
+  <i class="bi bi-list" style="font-size: 1.2rem; color: #dc3545;"></i>
 </button>
 
 <script>
@@ -91,34 +91,37 @@ function toggleSidebar() {
 }
 
 // Mobile menu functions
-function toggleMobileMenu() {
+function toggleMobileMenu(event) {
   const sidebar = document.querySelector('.admin-sidebar');
-  const overlay = document.querySelector('.mobile-menu-overlay');
   const toggleBtn = document.querySelector('.mobile-menu-toggle');
-  const toggleIcon = toggleBtn.querySelector('.navbar-toggler-icon');
+  const toggleIcon = toggleBtn.querySelector('i');
+  
+  if (event) {
+    event.stopPropagation();
+  }
   
   sidebar.classList.toggle('mobile-open');
-  overlay.classList.toggle('show');
   
-  // Change icon to X when open
   if (sidebar.classList.contains('mobile-open')) {
-    toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 4h22M4 4l22 22M4 26l22-22M26 26H4\'/%3e%3c/svg%3e')";
+    document.body.style.overflow = 'hidden';
+    toggleIcon.classList.remove('bi-list');
+    toggleIcon.classList.add('bi-x');
   } else {
-    toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 7h22M4 15h22M4 23h22\'/%3e%3c/svg%3e')";
+    document.body.style.overflow = '';
+    toggleIcon.classList.remove('bi-x');
+    toggleIcon.classList.add('bi-list');
   }
 }
 
 function closeMobileMenu() {
   const sidebar = document.querySelector('.admin-sidebar');
-  const overlay = document.querySelector('.mobile-menu-overlay');
   const toggleBtn = document.querySelector('.mobile-menu-toggle');
-  const toggleIcon = toggleBtn.querySelector('.navbar-toggler-icon');
+  const toggleIcon = toggleBtn.querySelector('i');
   
   sidebar.classList.remove('mobile-open');
-  overlay.classList.remove('show');
-  
-  // Reset icon to hamburger
-  toggleIcon.style.backgroundImage = "url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 30 30\'%3e%3cpath stroke=\'%23dc3545\' stroke-linecap=\'round\' stroke-miterlimit=\'10\' stroke-width=\'2\' d=\'M4 7h22M4 15h22M4 23h22\'/%3e%3c/svg%3e')";
+  document.body.style.overflow = '';
+  toggleIcon.classList.remove('bi-x');
+  toggleIcon.classList.add('bi-list');
 }
 
 // Handle window resize
@@ -129,20 +132,58 @@ function handleResize() {
   
   if (width <= 991.98) {
     mobileToggle.style.display = 'block';
-    // Close mobile menu if open
-    closeMobileMenu();
+    if (sidebar.classList.contains('mobile-open')) {
+      closeMobileMenu();
+    }
   } else {
     mobileToggle.style.display = 'none';
     sidebar.classList.remove('mobile-open');
-    document.querySelector('.mobile-menu-overlay').classList.remove('show');
+    document.body.style.overflow = '';
   }
 }
 
-// Restore sidebar state on page load
+// Initialize
 document.addEventListener('DOMContentLoaded', function() {
+  // Set up resize listener
+  window.addEventListener('resize', handleResize);
+  handleResize(); // Initial check
+  
+  // Add click outside to close functionality for mobile sidebar
+  document.addEventListener('click', function(e) {
+    const sidebar = document.querySelector('.admin-sidebar');
+    const mobileToggle = document.querySelector('.mobile-menu-toggle');
+    
+    // Only in mobile view and when sidebar is open
+    if (window.innerWidth <= 991.98 && sidebar.classList.contains('mobile-open')) {
+      // Check if click is outside sidebar and not on the toggle button
+      if (!sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
+        closeMobileMenu();
+      }
+    }
+  });
+  
+  // Add ESC key listener to close mobile menu
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const sidebar = document.querySelector('.admin-sidebar');
+      if (sidebar && sidebar.classList.contains('mobile-open')) {
+        closeMobileMenu();
+      }
+    }
+  });
+  
+  // Set initial hamburger menu icon
+  const mobileToggle = document.querySelector('.mobile-menu-toggle');
+  if (mobileToggle) {
+    const toggleIcon = mobileToggle.querySelector('i');
+    toggleIcon.classList.remove('bi-x');
+    toggleIcon.classList.add('bi-list');
+  }
+  
+  // Restore sidebar state on page load
+  const sidebar = document.querySelector('.admin-sidebar');
   const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
   if (isCollapsed && window.innerWidth > 991.98) {
-    const sidebar = document.querySelector('.admin-sidebar');
     const toggleBtn = document.querySelector('.toggle-btn i');
     const body = document.body;
     
@@ -151,10 +192,6 @@ document.addEventListener('DOMContentLoaded', function() {
     toggleBtn.classList.remove('bi-chevron-left');
     toggleBtn.classList.add('bi-chevron-right');
   }
-  
-  // Set up resize listener
-  window.addEventListener('resize', handleResize);
-  handleResize(); // Initial check
 });
 </script>
 

@@ -88,6 +88,9 @@ $stmt->close();
         .page-title{font-size:1.75rem;font-weight:600;color:var(--gray-900);letter-spacing:-.5px;margin-bottom:.25rem}
         .page-subtitle{color:var(--gray-700);font-size:.9375rem}
         .section-card{background:#fff;border-radius:12px;border:1px solid var(--gray-200);overflow:hidden}
+        .section-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--gray-200);background:#fff}
+        .section-header h2{font-size:1.125rem;font-weight:600;color:var(--gray-900);margin:0}
+        .section-body{padding:0}
         .table-minimal{margin:0;width:100%}
         .table-minimal thead th{background:var(--gray-50);color:var(--gray-700);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:1rem 1.5rem;border:none;border-bottom:1px solid var(--gray-200);text-align:left}
         .table-minimal tbody td{padding:1rem 1.5rem;color:var(--gray-900);font-size:.9375rem;border:none;border-bottom:1px solid var(--gray-100);vertical-align:middle}
@@ -259,10 +262,6 @@ $stmt->close();
 <body>
     <?php include('../includes/head_dean_navbar.php'); ?>
     <div class="container-main">
-        <div class="page-header">
-            <h1 class="page-title">All Records</h1>
-            <p class="page-subtitle">Complete history of all requests for your office, regardless of status</p>
-        </div>
 
         <!-- Filter Card -->
         <div class="filter-card">
@@ -284,6 +283,10 @@ $stmt->close();
         </div>
 
         <div class="section-card">
+            <div class="section-header">
+                <h2>Approved & Completed Requests</h2>
+            </div>
+            <div class="section-body">
             <div class="table-responsive">
                 <?php if (empty($requests)): ?>
                     <div class="empty-state">
@@ -360,6 +363,7 @@ $stmt->close();
                         </tbody>
                     </table>
                 <?php endif; ?>
+            </div>
             </div>
         </div>
     </div>

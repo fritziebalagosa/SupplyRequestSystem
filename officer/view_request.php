@@ -22,89 +22,37 @@ if (!$request) { die('Request not found'); }
 // Actions
 if ($_SERVER['REQUEST_METHOD']==='POST') {
   $csrf = $_POST['csrf_token'] ?? '';
-  if (!verify_csrf_token($csrf)) {
-    $_SESSION['error'] = 'Security check failed.';
-    header('Location: view_request.php?id='.$id); exit;
-  }
-  // Only when pending_officer
-  $st = $conn->prepare('SELECT status FROM requests WHERE id=?');
-  $st->bind_param('i', $id); $st->execute(); $row = $st->get_result()->fetch_assoc(); $st->close();
-  if (!$row || $row['status']!=='pending_officer') {
-    $_SESSION['error'] = 'Request is not pending officer.';
-    header('Location: view_request.php?id='.$id); exit;
-  }
-
+  
+  // Handle officer forward with adjustments
   if (isset($_POST['forward'])) {
     $remarks = trim($_POST['remarks_forward'] ?? '');
-    // require officer remarks before forwarding
-    if ($remarks === '') {
-      $_SESSION['error'] = 'Please provide officer remarks before forwarding.';
-      header('Location: view_request.php?id='.$id); exit;
-    }
-
-    // process approved quantities if provided
+    if ($remarks === '') { $_SESSION['error'] = 'Please provide officer remarks.'; header('Location: view_request.php?id='.$id); exit; }
+    
+    // Capture quantity adjustments from form
     $adjustments = [];
-    $ri_ids = $_POST['ri_id'] ?? [];
-    $approved_qtys = $_POST['approved_qty'] ?? [];
-
-    // validate each approved qty: ownership, numeric, and <= min(requested_qty, stock_qty)
-    $errors = [];
-    if (!empty($ri_ids) && is_array($ri_ids)) {
-      if (!is_array($approved_qtys) || count($approved_qtys) !== count($ri_ids)) {
-        $_SESSION['error'] = 'Mismatch in submitted items. Please try again.';
-        header('Location: view_request.php?id='.$id); exit;
-      }
-      $selRi = $conn->prepare("SELECT item_id, quantity FROM request_items WHERE id = ? AND request_id = ? LIMIT 1");
-      $selItemStock = $conn->prepare("SELECT item_name, stock_qty FROM items WHERE id = ? LIMIT 1");
-      for ($i=0;$i<count($ri_ids);$i++) {
-        $rid = intval($ri_ids[$i]);
-        $aq = intval($approved_qtys[$i] ?? 0);
-        // fetch request_items row
-        $selRi->bind_param('ii', $rid, $id);
-        $selRi->execute();
-        $res = $selRi->get_result();
-        if (!$res || $res->num_rows === 0) {
-          $errors[] = "Invalid item entry (ri_id={$rid}).";
-          continue;
+    if (isset($_POST['approved_qty']) && is_array($_POST['approved_qty'])) {
+        foreach ($_POST['approved_qty'] as $ri_id => $approved_qty) {
+            $ri_id = (int)$ri_id;
+            $approved_qty = (int)$approved_qty;
+            
+            // Get original item details for logging
+            $item_stmt = $conn->prepare("SELECT ri.quantity, i.item_name FROM request_items ri JOIN items i ON ri.item_id = i.id WHERE ri.id = ?");
+            $item_stmt->bind_param('i', $ri_id);
+            $item_stmt->execute();
+            $item_info = $item_stmt->get_result()->fetch_assoc();
+            $item_stmt->close();
+            
+            if ($item_info && $approved_qty != $item_info['quantity']) {
+                $adjustments[] = [
+                    'ri_id' => $ri_id,
+                    'item_name' => $item_info['item_name'],
+                    'quantity' => $item_info['quantity'],
+                    'approved' => $approved_qty
+                ];
+            }
         }
-        $riRow = $res->fetch_assoc();
-        $reqQty = (int)$riRow['quantity'];
-        $itemId = (int)$riRow['item_id'];
-        // fetch item stock and name
-        $selItemStock->bind_param('i', $itemId);
-        $selItemStock->execute();
-        $itRes = $selItemStock->get_result();
-        if (!$itRes || $itRes->num_rows === 0) {
-          $errors[] = "Item not found for ri_id={$rid}.";
-          continue;
-        }
-        $itRow = $itRes->fetch_assoc();
-        $stock = (int)$itRow['stock_qty'];
-        $iname = $itRow['item_name'];
-        $maxAllowed = min($reqQty, $stock);
-        if ($aq < 0) {
-          $errors[] = "Approved quantity for {$iname} cannot be negative.";
-        } elseif ($aq > $maxAllowed) {
-          $errors[] = "Approved quantity for {$iname} cannot exceed requested quantity or available stock (max {$maxAllowed}).";
-        }
-        // collect adjustment for recording
-        $adjustments[] = [
-          'ri_id' => $rid,
-          'item_name' => $iname,
-          'quantity' => $reqQty,
-          'approved' => $aq
-        ];
-      }
-      $selRi->close();
-      $selItemStock->close();
     }
-
-    if (!empty($errors)) {
-      $_SESSION['error'] = implode(' ', $errors);
-      header('Location: view_request.php?id='.$id); exit;
-    }
-
-    // all validations passed -> persist adjustments
+    
     if (!empty($adjustments)) {
       // if approved_quantity column exists, update request_items; otherwise, collect adjustments for comment
       $colCheck2 = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
@@ -118,10 +66,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         }
         $upd->close();
       } else {
-        // turn adjustments into textual form
+        // Fallback: collect adjustments for comment only
         $tmp = [];
         foreach ($adjustments as $adj) {
-          $tmp[] = "{$adj['item_name']} (ri_id={$adj['ri_id']}):{$adj['approved']}";
+          $tmp[] = "{$adj['item_name']} (ri_id={$adj['ri_id']}): {$adj['approved']}";
         }
         $adjustments = $tmp;
       }
@@ -150,6 +98,21 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
       
       // Send notifications to all relevant parties
       require_once('../includes/notifications.php');
+      
+      // If adjustments were made, send specific adjustment notification
+      if (!empty($adjustments)) {
+          $adjustment_text = '';
+          foreach ($adjustments as $adj) {
+              if (is_array($adj)) {
+                  $adjustment_text .= "{$adj['item_name']}: {$adj['quantity']} → {$adj['approved']}; ";
+              } else {
+                  $adjustment_text .= $adj . "; ";
+              }
+          }
+          send_quantity_adjustment_notification($conn, $id, trim($adjustment_text));
+      }
+      
+      // Send general status notification
       send_request_status_notification($conn, $id, 'for_final_approval', $comment, $user_id);
       
       $_SESSION['success']='Request forwarded to Supply Head for final approval.';
@@ -179,6 +142,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
   }
 }
 
+
 // Items
 $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
 $hasApprovedCol = ($colCheck && $colCheck->num_rows > 0);
@@ -191,6 +155,12 @@ $it->bind_param('i', $id); $it->execute(); $items = $it->get_result();
 // History
 $hist = $conn->prepare("SELECT ra.*, u.first_name, u.last_name FROM request_actions ra LEFT JOIN users u ON u.id=ra.action_by WHERE ra.request_id=? ORDER BY ra.created_at DESC");
 $hist->bind_param('i', $id); $hist->execute(); $history = $hist->get_result();
+
+// Reset history pointer and fetch as array for later use
+if ($history instanceof mysqli_result) {
+    $history->data_seek(0);
+    $history = $history->fetch_all(MYSQLI_ASSOC);
+}
 
 $csrf_token = generate_csrf_token();
 
@@ -617,69 +587,157 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             font-size: 0.875rem;
         }
 
-        /* Timeline */
-        .timeline {
-            position: relative;
-            padding-left: 2rem;
+        /* Action History */
+        .action-history {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
         }
 
-        .timeline::before {
-            content: '';
-            position: absolute;
-            left: 0.75rem;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: var(--gray-200);
+        .action-history h5 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .timeline {
+            position: relative;
         }
 
         .timeline-item {
             position: relative;
+            padding-left: 2.5rem;
             margin-bottom: 1.5rem;
         }
 
-        .timeline-marker {
-            position: absolute;
-            left: -1.5rem;
-            top: 0.25rem;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--red-primary);
-            border: 2px solid white;
+        .timeline-item:last-child {
+            margin-bottom: 0;
         }
 
-        .timeline-content {
-            background: var(--gray-50);
-            border-radius: 8px;
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 0.875rem;
+            top: 1.25rem;
+            bottom: -1.5rem;
+            width: 1px;
+            background: #e5e7eb;
+        }
+
+        .timeline-item:last-child::before {
+            display: none;
+        }
+
+        .timeline-icon {
+            position: absolute;
+            left: 0;
+            top: 0.75rem;
+            width: 1.75rem;
+            height: 1.75rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: white;
+            border: 2px solid #dc3545;
+            font-size: 0.75rem;
+            color: #dc3545;
+            z-index: 2;
+        }
+
+        .timeline-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
             padding: 1rem;
-            border: 1px solid var(--gray-200);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
         .timeline-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 0.5rem;
         }
 
         .timeline-title {
+            font-size: 0.9375rem;
             font-weight: 600;
-            color: var(--gray-900);
+            color: #111827;
+            margin: 0;
+            line-height: 1.3;
         }
 
-        .timeline-time {
-            font-size: 0.875rem;
-            color: var(--gray-700);
+        .timeline-meta {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            font-weight: 400;
+            margin-bottom: 0.25rem;
         }
 
-        .timeline-comment {
-            margin-top: 0.5rem;
+        .timeline-details {
+            background-color: #f9fafb;
+            border: 1px solid #f3f4f6;
+            border-radius: 0.5rem;
             padding: 0.75rem;
-            background: white;
-            border-radius: 6px;
-            border-left: 3px solid var(--red-primary);
+            margin-top: 0.75rem;
         }
+
+        .timeline-detail-label {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.375rem;
+        }
+
+        .timeline-detail-content {
+            font-size: 0.8125rem;
+            color: #111827;
+            line-height: 1.4;
+        }
+
+        .timeline-timestamp {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            text-align: right;
+            white-space: nowrap;
+            font-weight: 400;
+        }
+
+        .quantity-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.25rem;
+            font-size: 0.8125rem;
+        }
+
+        .quantity-item::before {
+            content: '•';
+            color: #dc3545;
+            font-weight: bold;
+            font-size: 0.875rem;
+            line-height: 1;
+        }
+
+        .ri-id {
+            background-color: #e0e0e0 !important;
+            color: #333;
+            padding: 2px 6px !important;
+            border-radius: 4px !important;
+            font-size: 0.85em !important;
+            font-weight: normal;
+        }
+
+        /* Timeline */
 
         /* Empty State */
         .empty-state {
@@ -904,7 +962,7 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                 // Check for quantity adjustments in history
                 $hasAdjustments = false;
                 $adjustmentNote = '';
-                $historyArray = $history->fetch_all(MYSQLI_ASSOC);
+                $historyArray = is_array($history) ? $history : [];
                 foreach ($historyArray as $h) {
                     if (strpos(($h['comment'] ?? ''), 'Adjustments:') !== false) {
                         $hasAdjustments = true;
@@ -1034,10 +1092,9 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
                     $allowedQty = (int)$defaultAllowed;
                     $maxQty = (int)$maxAllowed;
                     ?>
-                    <input type="hidden" name="ri_id[]" value="<?php echo $ri_id; ?>">
                     <div class="quantity-input">
                         <input type="number" 
-                               name="approved_qty[]" 
+                               name="approved_qty[<?php echo $ri_id; ?>]" 
                                class="form-control form-control-minimal text-center"
                                value="<?php echo $allowedQty; ?>"
                                min="0"
@@ -1084,88 +1141,159 @@ $status_text = ucwords(str_replace('_', ' ', $request['status']));
             </div>
         </div>
       </form>
-        </div>
     <?php endif; ?>
 
         <!-- Action History -->
-        <div class="info-card">
+        <div class="action-history">
             <h5><i class="bi bi-clock-history"></i> Action History</h5>
-            <div class="timeline" style="margin-top: 1.5rem;">
+            <div class="timeline">
                 <?php 
                 // Reset history pointer and fetch as array
-                $history->data_seek(0);
-                $historyArray = $history->fetch_all(MYSQLI_ASSOC);
+                $historyArray = is_array($history) ? $history : [];
                 if (!empty($historyArray)): ?>
                     <?php foreach ($historyArray as $action): ?>
                         <div class="timeline-item">
-                            <div class="timeline-marker"></div>
-                            <div class="timeline-content">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <h6 class="mb-1">
+                            <?php 
+                            $iconSymbol = '';
+                            $actionTitle = '';
+                            
+                            switch ($action['action_type']) {
+                                case 'submitted':
+                                    $iconSymbol = 'bi-send';
+                                    $actionTitle = 'Request Submitted';
+                                    break;
+                                case 'approved':
+                                    $iconSymbol = 'bi-check';
+                                    $actionTitle = 'Request Approved';
+                                    break;
+                                case 'rejected':
+                                    $iconSymbol = 'bi-x';
+                                    $actionTitle = 'Request Rejected';
+                                    break;
+                                case 'returned':
+                                    $iconSymbol = 'bi-arrow-return-left';
+                                    $actionTitle = 'Request Returned';
+                                    break;
+                                case 'officer_remark':
+                                    $iconSymbol = 'bi-info';
+                                    $actionTitle = 'Officer Remark';
+                                    break;
+                                case 'forwarded_to_admin':
+                                    $iconSymbol = 'bi-send';
+                                    $actionTitle = 'Forwarded for Final Approval';
+                                    break;
+                                case 'receipt_confirmed':
+                                    $iconSymbol = 'bi-check';
+                                    $actionTitle = 'Receipt Confirmed';
+                                    break;
+                                case 'received':
+                                    $iconSymbol = 'bi-check-circle';
+                                    $actionTitle = 'Items Received';
+                                    break;
+                                default:
+                                    $iconSymbol = 'bi-info';
+                                    $actionTitle = ucfirst(str_replace('_', ' ', $action['action_type']));
+                            }
+                            ?>
+                            <div class="timeline-icon">
+                                <i class="bi <?= $iconSymbol ?>"></i>
+                            </div>
+                            <div class="timeline-card">
+                                <div class="timeline-header">
+                                    <div>
+                                        <h6 class="timeline-title"><?= $actionTitle ?></h6>
+                                        <div class="timeline-meta">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></div>
+                                    </div>
+                                    <div class="timeline-timestamp"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></div>
+                                </div>
+                                
+                                <?php if (!empty($action['comment'])): ?>
+                                    <div class="timeline-details">
                                         <?php 
-                                        $actionText = '';
-                                        $icon = '';
-                                        $color = 'secondary';
+                                        $comment = $action['comment'];
                                         
-                                        switch ($action['action_type']) {
-                                            case 'submitted':
-                                                $actionText = 'Request Submitted';
-                                                $icon = 'bi-send';
-                                                $color = 'primary';
-                                                break;
-                                            case 'approved':
-                                                $actionText = 'Request Approved';
-                                                $icon = 'bi-check-circle';
-                                                $color = 'success';
-                                                break;
-                                            case 'rejected':
-                                                $actionText = 'Request Rejected';
-                                                $icon = 'bi-x-circle';
-                                                $color = 'danger';
-                                                break;
-                                            case 'returned':
-                                                $actionText = 'Request Returned for Revision';
-                                                $icon = 'bi-arrow-return-left';
-                                                $color = 'warning';
-                                                break;
-                                            case 'received':
-                                                $actionText = 'Items Received';
-                                                $icon = 'bi-check-circle-fill';
-                                                $color = 'info';
-                                                break;
-                                            case 'forwarded_to_admin':
-                                                $actionText = 'Forwarded for Final Approval';
-                                                $icon = 'bi-send';
-                                                $color = 'primary';
-                                                break;
-                                            default:
-                                                $actionText = ucfirst(str_replace('_', ' ', $action['action_type']));
-                                                $icon = 'bi-info-circle';
+                                        // Check if comment contains release date information
+                                        if (strpos($comment, 'Release date:') !== false) {
+                                            echo '<div class="timeline-detail-label">Release date</div>';
+                                            // Convert 24-hour time to 12-hour format in release date comment
+                                            $formatted_comment = $comment;
+                                            if (preg_match('/(\d{4}-\d{2}-\d{2}\s+at\s+)(\d{2}:\d{2})/', $formatted_comment, $matches)) {
+                                                $date_part = $matches[1];
+                                                $time_part = $matches[2];
+                                                $formatted_time = date('g:i A', strtotime($time_part));
+                                                $formatted_comment = str_replace($matches[0], $date_part . $formatted_time, $formatted_comment);
+                                            }
+                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($formatted_comment)) . '</div>';
+                                        }
+                                        // Check if comment contains officer remarks
+                                        elseif (strpos($comment, 'OFFICER REMARK') !== false || $action['action_type'] === 'officer_remark') {
+                                            if (strpos($comment, 'OFFICER REMARK') !== false) {
+                                                $parts = explode('OFFICER REMARK', $comment);
+                                                $remarkPart = $parts[1] ?? '';
+                                                echo '<div class="timeline-detail-label">COMMENT</div>';
+                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
+                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars(trim($remarkPart))) . '</div>';
+                                                
+                                                // Check for quantity adjustments
+                                                if (strpos($comment, 'QUANTITY ADJUSTMENTS') !== false) {
+                                                    $adjustmentParts = explode('QUANTITY ADJUSTMENTS', $comment);
+                                                    $adjustments = $adjustmentParts[1] ?? '';
+                                                    echo '<div class="timeline-detail-label" style="margin-top: 1rem;">--- Quantity Adjustments ---</div>';
+                                                    echo '<div class="timeline-detail-content">';
+                                                    
+                                                    // Parse adjustments line by line and style ri_id part
+                                                    $lines = explode("\n", trim($adjustments));
+                                                    foreach ($lines as $line) {
+                                                        $line = trim($line);
+                                                        if (!empty($line) && strpos($line, ':') !== false) {
+                                                            // Extract item name, ri_id, and quantity
+                                                            preg_match('/^(.*?)\s*\(ri_id=\d+\)\s*:\s*(\d+)$/', $line, $matches);
+                                                            if (count($matches) === 3) {
+                                                                $itemName = htmlspecialchars($matches[1]);
+                                                                $quantity = htmlspecialchars($matches[2]);
+                                                                echo '<div class="quantity-item">';
+                                                                echo '<span class="item-name">' . $itemName . '</span> ';
+                                                                echo '<span class="quantity">: ' . $quantity . '</span>';
+                                                                echo '</div>';
+                                                            } else {
+                                                                // Fallback: try to remove ri_id if present
+                                                                $cleanLine = preg_replace('/\s*\(ri_id=\d+\)/', '', $line);
+                                                                echo '<div class="quantity-item">' . htmlspecialchars($cleanLine) . '</div>';
+                                                            }
+                                                        }
+                                                    }
+                                                    echo '</div>';
+                                                }
+                                            } else {
+                                                // This handles officer_remark actions where comment doesn't contain "OFFICER REMARK"
+                                                echo '<div class="timeline-detail-label">COMMENT</div>';
+                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
+                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
+                                            }
+                                        }
+                                        // Check for notes
+                                        elseif (strpos($comment, 'NOTE') !== false) {
+                                            echo '<div class="timeline-detail-label">NOTE</div>';
+                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
+                                        }
+                                        // General comment
+                                        else {
+                                            echo '<div class="timeline-detail-label">COMMENT</div>';
+                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
                                         }
                                         ?>
-                                        <i class="bi <?= $icon ?> me-1 text-<?= $color ?>"></i>
-                                        <?= $actionText ?>
-                                    </h6>
-                                    <small class="text-muted"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></small>
-                                </div>
-                                <div class="ms-4 mt-1">
-                                    <?php if (!empty($action['first_name'])): ?>
-                                        <small class="text-muted">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></small><br>
-                                    <?php endif; ?>
-                                    <?php if (!empty($action['comment'])): ?>
-                                        <div class="mt-1 p-2 bg-light rounded">
-                                            <small><?= nl2br(htmlspecialchars($action['comment'])) ?></small>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <div class="text-center text-muted py-3">
-                        <i class="bi bi-info-circle"></i> No action history found for this request.
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-clock-history" style="font-size: 2rem;"></i>
+                        <p class="mt-2">No action history available</p>
                     </div>
                 <?php endif; ?>
+            </div>
         </div>
 
 </div>

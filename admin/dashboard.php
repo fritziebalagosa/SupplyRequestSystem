@@ -14,21 +14,6 @@ if ($_SESSION['role'] !== 'admin') {
     exit();
 }
 
-// Handle closing low stock alerts
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'close_alert') {
-    $alert_id = (int)($_POST['alert_id'] ?? 0);
-    if ($alert_id > 0) {
-        $update_stmt = $conn->prepare("UPDATE low_stock_alerts SET status = 'closed' WHERE id = ?");
-        $update_stmt->bind_param("i", $alert_id);
-        $update_stmt->execute();
-        $update_stmt->close();
-        
-        // Redirect to prevent form resubmission
-        header('Location: dashboard.php');
-        exit();
-    }
-}
-
 // Summary counts
 $total_requests = $conn->query("SELECT COUNT(*) AS total FROM requests")->fetch_assoc()['total'];
 $approved_requests = $conn->query("SELECT COUNT(*) AS total FROM requests WHERE status = 'approved'")->fetch_assoc()['total'];
@@ -46,14 +31,6 @@ $stockout_frequency = $stockout_query ? $stockout_query['stockout_count'] : 0;
 
 // 2. Approval Rate
 $approval_rate = $total_requests > 0 ? round(($approved_requests / $total_requests) * 100, 1) : 0;
-
-// 3. Current Active Low Stock Alerts
-$active_alerts_query = $conn->query("
-    SELECT COALESCE(COUNT(*), 0) as alert_count
-    FROM low_stock_alerts
-    WHERE status = 'open'
-")->fetch_assoc();
-$active_alerts = $active_alerts_query ? $active_alerts_query['alert_count'] : 0;
 
 // 4. Top Offices/Colleges by Request Volume (last 30 days)
 $top_offices_query = $conn->query("
@@ -103,16 +80,6 @@ if ($top_items_query) {
     }
 }
 
-// 5. Average Request Processing Time (days from submission to final action)
-$processing_time_query = $conn->query("
-    SELECT COALESCE(AVG(TIMESTAMPDIFF(HOUR, r.created_at, ra.created_at)), 0) as avg_hours
-    FROM requests r
-    JOIN request_actions ra ON r.id = ra.request_id
-    WHERE ra.action_type IN ('approved', 'rejected')
-    AND r.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-")->fetch_assoc();
-$avg_processing_time = $processing_time_query ? round($processing_time_query['avg_hours'] / 24, 1) : 0;
-
 // Fetch supply officer accounts
 $officers = $conn->query("
     SELECT id, first_name, middle_name, last_name, email, status, created_at
@@ -120,15 +87,19 @@ $officers = $conn->query("
     WHERE role = 'supply_officer'
 ");
 
-// Fetch recent request activities
+// Fetch recent requests that reached admin (supply head) with their status
 $activities = $conn->query("
-    SELECT ra.*, u.first_name, u.last_name, r.id AS request_id
-    FROM request_actions ra
-    LEFT JOIN users u ON ra.action_by = u.id
-    LEFT JOIN requests r ON ra.request_id = r.id
-    ORDER BY ra.created_at DESC
+    SELECT r.id, r.request_id, r.status, r.created_at, 
+           u.first_name, u.last_name, u.role,
+           co.name as office_name
+    FROM requests r
+    JOIN users u ON r.requester_id = u.id
+    LEFT JOIN college_offices co ON r.college_office_id = co.id
+    WHERE r.status IN ('pending', 'for_approval', 'forwarded', 'for_final_approval', 'approved', 'rejected', 'completed', 'for_release')
+    ORDER BY r.created_at DESC
     LIMIT 10
 ");
+
 ?>
 
 <!DOCTYPE html>
@@ -221,45 +192,12 @@ $activities = $conn->query("
     canvas {
       margin: 0;
     }
-    
-    /* Low Stock Alerts Styles */
-    .btn-action {
-      padding: 0.4rem 0.875rem;
-      border-radius: 6px;
-      font-weight: 500;
-      font-size: 0.875rem;
-      border: 1px solid;
-      transition: all 0.2s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.375rem;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    
-    .btn-action-success {
-      background: #d4edda;
-      color: #155724;
-      border-color: #c3e6cb;
-    }
-    
-    .btn-action-success:hover {
-      background: #c3e6cb;
-      border-color: #28a745;
-      transform: translateY(-1px);
-    }
-    
-    .badge-danger {
-      background-color: #f8d7da;
-      color: #721c24;
-      border-color: #f5c6cb;
-    }
   </style>
 </head>
 <body>
 <?php include('../includes/admin_sidebar.php'); ?>
 
-  <div class="container-main">
+<div class="container-main">
     <h1 class="page-title">Dashboard</h1>
 
     <!-- Summary Cards -->
@@ -353,18 +291,6 @@ $activities = $conn->query("
               </div>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="kpi-card">
-              <div class="kpi-icon text-primary">
-                <i class="bi bi-graph-up"></i>
-              </div>
-              <div class="kpi-content">
-                <div class="kpi-label">Avg. Processing Time</div>
-                <div class="kpi-value"><?php echo $avg_processing_time; ?> days</div>
-                <div class="kpi-subtitle">Request to completion</div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -413,76 +339,10 @@ $activities = $conn->query("
       </div>
     </div>
 
-    <!-- Low Stock Alerts -->
+    <!-- Recent Requests -->
     <div class="section-card">
       <div class="section-header">
-        <h2>Low Stock Alerts</h2>
-        <small class="text-muted">Active alerts from officers</small>
-      </div>
-      <div class="section-body">
-        <?php
-        // Get active low stock alerts with item details
-        $alerts_query = $conn->query("
-            SELECT lsa.*, i.item_name, i.stock_qty, i.reorder_level, u.first_name, u.last_name, co.name as office_name
-            FROM low_stock_alerts lsa
-            JOIN items i ON lsa.item_id = i.id
-            JOIN users u ON lsa.sent_by = u.id
-            LEFT JOIN college_offices co ON lsa.college_office_id = co.id
-            WHERE lsa.status = 'open'
-            ORDER BY lsa.created_at DESC
-            LIMIT 10
-        ");
-        ?>
-        <?php if ($alerts_query->num_rows > 0): ?>
-          <div class="table-responsive-wrapper">
-            <table class="table table-minimal">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Current Stock</th>
-                  <th>Reorder Level</th>
-                  <th>Reported By</th>
-                  <th>Office</th>
-                  <th>Date</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php while ($alert = $alerts_query->fetch_assoc()): ?>
-                  <tr>
-                    <td><?php echo htmlspecialchars($alert['item_name']); ?></td>
-                    <td><span class="badge-minimal badge-danger"><?php echo $alert['stock_qty']; ?></span></td>
-                    <td><?php echo $alert['reorder_level']; ?></td>
-                    <td><?php echo htmlspecialchars($alert['first_name'] . ' ' . $alert['last_name']); ?></td>
-                    <td><?php echo htmlspecialchars($alert['office_name'] ?? 'N/A'); ?></td>
-                    <td><?php echo date("M d, Y", strtotime($alert['created_at'])); ?></td>
-                    <td>
-                      <form method="POST" style="display:inline;" onsubmit="return confirm('Close this alert?')">
-                        <input type="hidden" name="alert_id" value="<?php echo $alert['id']; ?>">
-                        <input type="hidden" name="action" value="close_alert">
-                        <button type="submit" class="btn-action btn-action-success">
-                          <i class="bi bi-check"></i> Close
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                <?php endwhile; ?>
-              </tbody>
-            </table>
-          </div>
-        <?php else: ?>
-          <div class="empty-state">
-            <i class="bi bi-check-circle"></i>
-            <p>No active low stock alerts</p>
-          </div>
-        <?php endif; ?>
-      </div>
-    </div>
-
-    <!-- Recent Activities -->
-    <div class="section-card">
-      <div class="section-header">
-        <h2>Recent Activities</h2>
+        <h2>Recent Requests</h2>
       </div>
       <div class="section-body">
         <?php if ($activities->num_rows > 0): ?>
@@ -491,29 +351,44 @@ $activities = $conn->query("
               <thead>
                 <tr>
                   <th>Request</th>
-                  <th>Action By</th>
-                  <th>Role</th>
-                  <th>Action</th>
-                  <th>Date</th>
+                  <th>Requested By</th>
+                  <th>Office</th>
+                  <th>Status</th>
+                  <th>Date Submitted</th>
                 </tr>
               </thead>
               <tbody>
                 <?php while ($a = $activities->fetch_assoc()): ?>
                   <tr>
-                    <td><span class="id-badge">#<?php echo $a['request_id']; ?></span></td>
+                    <td><span class="id-badge">#<?php echo htmlspecialchars($a['request_id']); ?></span></td>
                     <td><?php echo htmlspecialchars($a['first_name'] . ' ' . $a['last_name']); ?></td>
-                    <td><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $a['role']))); ?></td>
+                    <td><?php echo htmlspecialchars($a['office_name'] ?? 'N/A'); ?></td>
                     <td>
                       <span class="badge-minimal <?php 
-                        echo match($a['action_type']) {
+                        echo match($a['status']) {
                           'approved' => 'badge-success',
                           'rejected' => 'badge-danger',
-                          'forwarded' => 'badge-info',
-                          'returned' => 'badge-warning',
+                          'forwarded', 'for_approval', 'for_final_approval' => 'badge-info',
+                          'pending' => 'badge-warning',
+                          'completed' => 'badge-success',
+                          'for_release' => 'badge-primary',
                           default => 'badge-secondary'
                         };
                       ?>">
-                        <?php echo ucfirst($a['action_type']); ?>
+                        <?php 
+                        $status_display = match($a['status']) {
+                          'pending' => 'Pending',
+                          'for_approval' => 'For Approval',
+                          'forwarded' => 'Forwarded',
+                          'for_final_approval' => 'For Final Approval',
+                          'approved' => 'Approved',
+                          'rejected' => 'Rejected',
+                          'completed' => 'Completed',
+                          'for_release' => 'For Release',
+                          default => ucfirst(str_replace('_', ' ', $a['status']))
+                        };
+                        echo htmlspecialchars($status_display);
+                        ?>
                       </span>
                     </td>
                     <td><?php echo date("M d, Y g:i A", strtotime($a['created_at'])); ?></td>
@@ -525,7 +400,7 @@ $activities = $conn->query("
         <?php else: ?>
           <div class="empty-state">
             <i class="bi bi-clock-history"></i>
-            <p>No recent activity</p>
+            <p>No recent requests</p>
           </div>
         <?php endif; ?>
       </div>

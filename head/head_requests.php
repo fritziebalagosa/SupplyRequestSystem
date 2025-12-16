@@ -154,11 +154,13 @@ $stmt2 = $conn->prepare("SELECT r.id, r.request_id, r.status, r.created_at, u.fi
                         LEFT JOIN release_proofs rp ON rp.request_id = r.id
                         LEFT JOIN request_items ri ON ri.request_id = r.id
                         LEFT JOIN items it ON ri.item_id = it.id
-                        WHERE r.status = 'approved'$search_where
+                        WHERE r.college_office_id = ? AND r.status = 'approved'$search_where
                         GROUP BY r.id
                         ORDER BY r.created_at DESC");
 if (!empty($search)) {
-    $stmt2->bind_param('ssss', ...$search_params);
+    $stmt2->bind_param('issss', $college_office_id, ...$search_params);
+} else {
+    $stmt2->bind_param('i', $college_office_id);
 }
 $stmt2->execute();
 $approved = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);

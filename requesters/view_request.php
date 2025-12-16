@@ -595,156 +595,6 @@ $csrf_token = generate_csrf_token();
             text-decoration: underline;
         }
 
-        /* Action History */
-        .action-history {
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .action-history h5 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .timeline {
-            position: relative;
-        }
-
-        .timeline-item {
-            position: relative;
-            padding-left: 2.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .timeline-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .timeline-item::before {
-            content: '';
-            position: absolute;
-            left: 0.875rem;
-            top: 1.25rem;
-            bottom: -1.5rem;
-            width: 1px;
-            background: #e5e7eb;
-        }
-
-        .timeline-item:last-child::before {
-            display: none;
-        }
-
-        .timeline-icon {
-            position: absolute;
-            left: 0;
-            top: 0.75rem;
-            width: 1.75rem;
-            height: 1.75rem;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background-color: white;
-            border: 2px solid #dc3545;
-            font-size: 0.75rem;
-            color: #dc3545;
-            z-index: 2;
-        }
-
-        .timeline-card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 0.75rem;
-            padding: 1rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .timeline-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.5rem;
-        }
-
-        .timeline-title {
-            font-size: 0.9375rem;
-            font-weight: 600;
-            color: #111827;
-            margin: 0;
-            line-height: 1.3;
-        }
-
-        .timeline-meta {
-            font-size: 0.8125rem;
-            color: #6b7280;
-            font-weight: 400;
-            margin-bottom: 0.25rem;
-        }
-
-        .timeline-details {
-            background-color: #f9fafb;
-            border: 1px solid #f3f4f6;
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            margin-top: 0.75rem;
-        }
-
-        .timeline-detail-label {
-            font-size: 0.6875rem;
-            font-weight: 600;
-            color: #374151;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.375rem;
-        }
-
-        .timeline-detail-content {
-            font-size: 0.8125rem;
-            color: #111827;
-            line-height: 1.4;
-        }
-
-        .timeline-timestamp {
-            font-size: 0.75rem;
-            color: #9ca3af;
-            text-align: right;
-            white-space: nowrap;
-            font-weight: 400;
-        }
-
-        .quantity-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8125rem;
-        }
-
-        .quantity-item::before {
-            content: '•';
-            color: #dc3545;
-            font-weight: bold;
-            font-size: 0.875rem;
-            line-height: 1;
-        }
-
-        .ri-id {
-            background-color: #e0e0e0 !important;
-            color: #333;
-            padding: 2px 6px !important;
-            border-radius: 4px !important;
-            font-size: 0.85em !important;
-            font-weight: normal;
-        }
-
         /* Responsive */
         @media (max-width: 768px) {
             .container-main {
@@ -1213,155 +1063,124 @@ $csrf_token = generate_csrf_token();
         <?php endif; ?>
 
         <!-- Action History -->
-        <div class="action-history">
-            <h5><i class="bi bi-clock-history"></i> Action History</h5>
-            <div class="timeline">
-                <?php 
-                if (!empty($history)): ?>
+        <div class="section-card">
+            <div class="section-header">
+                <h5><i class="bi bi-clock-history"></i> Action History</h5>
+            </div>
+            <div class="section-body">
+            <div class="timeline" style="margin-top: 1.5rem;">
+                <?php if (!empty($history)): ?>
                     <?php foreach ($history as $action): ?>
                         <div class="timeline-item">
-                            <?php 
-                            $iconSymbol = '';
-                            $actionTitle = '';
-                            
-                            switch ($action['action_type']) {
-                                case 'submitted':
-                                    $iconSymbol = 'bi-send';
-                                    $actionTitle = 'Request Submitted';
-                                    break;
-                                case 'approved':
-                                    $iconSymbol = 'bi-check';
-                                    $actionTitle = 'Request Approved';
-                                    break;
-                                case 'rejected':
-                                    $iconSymbol = 'bi-x';
-                                    $actionTitle = 'Request Rejected';
-                                    break;
-                                case 'returned':
-                                    $iconSymbol = 'bi-arrow-return-left';
-                                    $actionTitle = 'Request Returned';
-                                    break;
-                                case 'officer_remark':
-                                    $iconSymbol = 'bi-info';
-                                    $actionTitle = 'Officer Remark';
-                                    break;
-                                case 'forwarded_to_admin':
-                                    $iconSymbol = 'bi-send';
-                                    $actionTitle = 'Forwarded for Final Approval';
-                                    break;
-                                case 'receipt_confirmed':
-                                    $iconSymbol = 'bi-check';
-                                    $actionTitle = 'Receipt Confirmed';
-                                    break;
-                                case 'received':
-                                    $iconSymbol = 'bi-check-circle';
-                                    $actionTitle = 'Items Received';
-                                    break;
-                                default:
-                                    $iconSymbol = 'bi-info';
-                                    $actionTitle = ucfirst(str_replace('_', ' ', $action['action_type']));
-                            }
-                            ?>
-                            <div class="timeline-icon">
-                                <i class="bi <?= $iconSymbol ?>"></i>
-                            </div>
-                            <div class="timeline-card">
-                                <div class="timeline-header">
-                                    <div>
-                                        <h6 class="timeline-title"><?= $actionTitle ?></h6>
-                                        <div class="timeline-meta">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></div>
-                                    </div>
-                                    <div class="timeline-timestamp"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></div>
-                                </div>
-                                
-                                <?php if (!empty($action['comment'])): ?>
-                                    <div class="timeline-details">
+                            <div class="timeline-marker"></div>
+                            <div class="timeline-content">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-1">
                                         <?php 
-                                        $comment = $action['comment'];
+                                        $actionText = '';
+                                        $icon = '';
+                                        $color = 'secondary';
                                         
-                                        // Check if comment contains release date information
-                                        if (strpos($comment, 'Release date:') !== false) {
-                                            echo '<div class="timeline-detail-label">Release date</div>';
-                                            // Convert 24-hour time to 12-hour format in release date comment
-                                            $formatted_comment = $comment;
-                                            if (preg_match('/(\d{4}-\d{2}-\d{2}\s+at\s+)(\d{2}:\d{2})/', $formatted_comment, $matches)) {
-                                                $date_part = $matches[1];
-                                                $time_part = $matches[2];
-                                                $formatted_time = date('g:i A', strtotime($time_part));
-                                                $formatted_comment = str_replace($matches[0], $date_part . $formatted_time, $formatted_comment);
-                                            }
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($formatted_comment)) . '</div>';
-                                        }
-                                        // Check if comment contains officer remarks
-                                        elseif (strpos($comment, 'OFFICER REMARK') !== false || $action['action_type'] === 'officer_remark') {
-                                            if (strpos($comment, 'OFFICER REMARK') !== false) {
-                                                $parts = explode('OFFICER REMARK', $comment);
-                                                $remarkPart = $parts[1] ?? '';
-                                                echo '<div class="timeline-detail-label">COMMENT</div>';
-                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
-                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars(trim($remarkPart))) . '</div>';
-                                                
-                                                // Check for quantity adjustments
-                                                if (strpos($comment, 'QUANTITY ADJUSTMENTS') !== false) {
-                                                    $adjustmentParts = explode('QUANTITY ADJUSTMENTS', $comment);
-                                                    $adjustments = $adjustmentParts[1] ?? '';
-                                                    echo '<div class="timeline-detail-label" style="margin-top: 1rem;">--- Quantity Adjustments ---</div>';
-                                                    echo '<div class="timeline-detail-content">';
-                                                    
-                                                    // Parse adjustments line by line and style ri_id part
-                                                    $lines = explode("\n", trim($adjustments));
-                                                    foreach ($lines as $line) {
-                                                        $line = trim($line);
-                                                        if (!empty($line) && strpos($line, ':') !== false) {
-                                                            // Extract item name, ri_id, and quantity
-                                                            preg_match('/^(.*?)\s*\(ri_id=\d+\)\s*:\s*(\d+)$/', $line, $matches);
-                                                            if (count($matches) === 3) {
-                                                                $itemName = htmlspecialchars($matches[1]);
-                                                                $quantity = htmlspecialchars($matches[2]);
-                                                                echo '<div class="quantity-item">';
-                                                                echo '<span class="item-name">' . $itemName . '</span> ';
-                                                                echo '<span class="quantity">: ' . $quantity . '</span>';
-                                                                echo '</div>';
-                                                            } else {
-                                                                // Fallback: try to remove ri_id if present
-                                                                $cleanLine = preg_replace('/\s*\(ri_id=\d+\)/', '', $line);
-                                                                echo '<div class="quantity-item">' . htmlspecialchars($cleanLine) . '</div>';
-                                                            }
-                                                        }
-                                                    }
-                                                    echo '</div>';
-                                                }
-                                            } else {
-                                                // This handles officer_remark actions where comment doesn't contain "OFFICER REMARK"
-                                                echo '<div class="timeline-detail-label">COMMENT</div>';
-                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
-                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
-                                            }
-                                        }
-                                        // Check for notes
-                                        elseif (strpos($comment, 'NOTE') !== false) {
-                                            echo '<div class="timeline-detail-label">NOTE</div>';
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
-                                        }
-                                        // General comment
-                                        else {
-                                            echo '<div class="timeline-detail-label">COMMENT</div>';
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
+                                        switch ($action['action_type']) {
+                                            case 'submitted':
+                                                $actionText = 'Request Submitted';
+                                                $icon = 'bi-send';
+                                                $color = 'primary';
+                                                break;
+                                            case 'approved':
+                                                $actionText = 'Request Approved';
+                                                $icon = 'bi-check-circle';
+                                                $color = 'success';
+                                                break;
+                                            case 'rejected':
+                                                $actionText = 'Request Rejected';
+                                                $icon = 'bi-x-circle';
+                                                $color = 'danger';
+                                                break;
+                                            case 'returned':
+                                                $actionText = 'Request Returned for Revision';
+                                                $icon = 'bi-arrow-return-left';
+                                                $color = 'warning';
+                                                break;
+                                            case 'received':
+                                                $actionText = 'Items Received';
+                                                $icon = 'bi-check-circle-fill';
+                                                $color = 'info';
+                                                break;
+                                            default:
+                                                $actionText = ucfirst($action['action_type']);
+                                                $icon = 'bi-info-circle';
                                         }
                                         ?>
-                                    </div>
-                                <?php endif; ?>
+                                        <i class="bi <?= $icon ?> me-1 text-<?= $color ?>"></i>
+                                        <?= $actionText ?>
+                                    </h6>
+                                    <small class="text-muted"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></small>
+                                </div>
+                                <div class="ms-4 mt-1">
+                                    <?php if (!empty($action['first_name'])): ?>
+                                        <small class="text-muted">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></small><br>
+                                    <?php endif; ?>
+                                    <?php if (!empty($action['comment'])): ?>
+                                        <div class="mt-1 p-2 bg-light rounded">
+                                            <small><?= nl2br(htmlspecialchars($action['comment'])) ?></small>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <div class="text-center text-muted py-4">
-                        <i class="bi bi-clock-history" style="font-size: 2rem;"></i>
-                        <p class="mt-2">No action history available</p>
+                    <div class="text-center text-muted py-3">
+                        <i class="bi bi-info-circle"></i> No action history found for this request.
                     </div>
                 <?php endif; ?>
             </div>
         </div>
+    </div>
+
+    <style>
+        .timeline {
+            position: relative;
+            padding-left: 1.5rem;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0.75rem;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--gray-200);
+        }
+        .timeline-item {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+        .timeline-marker {
+            position: absolute;
+            left: -1.5rem;
+            width: 1rem;
+            height: 1rem;
+            border-radius: 50%;
+            background: var(--gray-300);
+            top: 0.25rem;
+        }
+        .timeline-content {
+            padding-left: 1.5rem;
+        }
+        #photoPreview img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .form-text {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+    </style>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>

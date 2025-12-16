@@ -44,45 +44,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         
-        // Combine date and time
-        $release_datetime = $release_date . ' ' . $release_time;
-        
-        // Update request status
-        $update_stmt = $conn->prepare("UPDATE requests SET status = 'approved' WHERE id = ?");
-        $update_stmt->bind_param('i', $request_id);
-        $update_stmt->execute();
-        $update_stmt->close();
-        
-        // Store release schedule
-        $schedule_stmt = $conn->prepare("INSERT INTO release_schedule (request_id, release_date) VALUES (?, ?)");
-        $schedule_stmt->bind_param('is', $request_id, $release_datetime);
-        $schedule_stmt->execute();
-        $schedule_stmt->close();
-        
-        // Deduct stock quantities (use approved_quantity when column exists)
-        $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
-        $hasApproved = ($colCheck && $colCheck->num_rows > 0);
-        if ($hasApproved) {
-            $update_stock = $conn->prepare("UPDATE items JOIN request_items ON items.id = request_items.item_id SET items.stock_qty = items.stock_qty - COALESCE(request_items.approved_quantity, request_items.quantity) WHERE request_items.request_id = ?");
-        } else {
-            $update_stock = $conn->prepare("UPDATE items JOIN request_items ON items.id = request_items.item_id SET items.stock_qty = items.stock_qty - request_items.quantity WHERE request_items.request_id = ?");
+        // Store date and time separately
+        // Prevent double approve
+        $curr = $conn->prepare("SELECT status FROM requests WHERE id=?");
+        $curr->bind_param('i', $request_id);
+        $curr->execute();
+        $st = $curr->get_result()->fetch_assoc();
+        $curr->close();
+        if (!$st || in_array($st['status'], ['approved','rejected'])) {
+            $_SESSION['error'] = 'Request is not pending final approval.';
+            header('Location: view_request.php?id=' . $request_id);
+            exit;
         }
-        $update_stock->bind_param("i", $request_id);
-        $update_stock->execute();
-        $update_stock->close();
+
+        // Approve (no release_date column in requests) -> store date in action log comment
+        $up = $conn->prepare("UPDATE requests SET status='approved' WHERE id=?");
+        $up->bind_param('i', $request_id);
+        $up->execute();
+        $up->close();
         
-        // Send notifications to all relevant parties (excluding the admin who approved)
+        // Send notifications to all relevant parties
         require_once('../includes/notifications.php');
-        send_request_status_notification($conn, $request_id, 'approved', null, $user_id);
+        send_request_status_notification($conn, $request_id, 'approved', 'Request approved by admin', $user_id);
+
+    // Deduct stock: use approved_quantity if the column exists, otherwise use requested quantity
+    $colCheck = $conn->query("SHOW COLUMNS FROM request_items LIKE 'approved_quantity'");
+    $hasApprovedCol = ($colCheck && $colCheck->num_rows > 0);
+    if ($hasApprovedCol) {
+      $ded = $conn->prepare("UPDATE items JOIN request_items ON items.id=request_items.item_id SET items.stock_qty = items.stock_qty - COALESCE(request_items.approved_quantity, request_items.quantity) WHERE request_items.request_id = ?");
+    } else {
+      $ded = $conn->prepare("UPDATE items JOIN request_items ON items.id=request_items.item_id SET items.stock_qty = items.stock_qty - request_items.quantity WHERE request_items.request_id = ?");
+    }
+    $ded->bind_param('i', $request_id);
+    $ded->execute();
+    $ded->close();
+    
+    // Check for low stock alerts after deduction
+    check_and_send_low_stock_alerts($conn, $request_id);
+
+        // Upsert release schedule with date and time (temporary fix)
+        $conn->query("CREATE TABLE IF NOT EXISTS release_schedule (request_id INT PRIMARY KEY, release_date DATE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $ins = $conn->prepare("INSERT INTO release_schedule (request_id, release_date) VALUES (?,?) ON DUPLICATE KEY UPDATE release_date=VALUES(release_date)");
+        $ins->bind_param('is', $request_id, $release_date);
+        $ins->execute();
+        $ins->close();
+
+        // Log action
+        $role = $_SESSION['role'];
+        $comment = 'Release date: ' . $release_date . ' at ' . $release_time;
+        $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'approved', ?, NOW())");
+        $ia->bind_param('iiss', $request_id, $user_id, $role, $comment);
+        $ia->execute();
+        $ia->close();
+
+        // Send notifications to requester, dean, and head
+        require_once('../includes/functions.php');
+        send_approval_notifications($conn, $request_id, $release_date . ' ' . $release_time);
+
+        $_SESSION['success'] = 'Request approved, stock updated, and notifications sent.';
+        header('Location: view_request.php?id=' . $request_id);
+        exit;
+    }
+
+    if (isset($_POST['reject_request'])) {
+        $remarks = trim($_POST['remarks'] ?? '');
+        if ($remarks === '') {
+            $_SESSION['error'] = 'Please provide a reason for rejection.';
+            header('Location: view_request.php?id=' . $request_id);
+            exit;
+        }
+        $up = $conn->prepare("UPDATE requests SET status='rejected' WHERE id=?");
+        $up->bind_param('i', $request_id);
+        $up->execute();
+        $up->close();
+        
+        // Send notifications to all relevant parties
+        require_once('../includes/notifications.php');
+        send_request_status_notification($conn, $request_id, 'rejected', $remarks, $user_id);
 
         $role = $_SESSION['role'];
-        $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'approved', ?, NOW())");
-        $remarks = "Approved with release scheduled for " . date('M d, Y g:i A', strtotime($release_datetime));
+        $ia = $conn->prepare("INSERT INTO request_actions (request_id, action_by, role, action_type, comment, created_at) VALUES (?, ?, ?, 'rejected', ?, NOW())");
         $ia->bind_param('iiss', $request_id, $user_id, $role, $remarks);
         $ia->execute();
         $ia->close();
 
-        $_SESSION['success'] = 'Request has been approved and scheduled for release.';
+        $_SESSION['error'] = 'Request has been rejected.';
         header('Location: view_request.php?id=' . $request_id);
         exit;
     }
@@ -544,154 +590,35 @@ $rec_stmt->close();
             text-decoration: underline;
         }
 
-        /* Action History */
-        .action-history {
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .action-history h5 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
+        /* Timeline */
         .timeline {
             position: relative;
+            padding-left: 1.5rem;
         }
-
-        .timeline-item {
-            position: relative;
-            padding-left: 2.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .timeline-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .timeline-item::before {
+        .timeline::before {
             content: '';
             position: absolute;
-            left: 0.875rem;
-            top: 1.25rem;
-            bottom: -1.5rem;
-            width: 1px;
-            background: #e5e7eb;
+            left: 0.75rem;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--gray-200);
         }
-
-        .timeline-item:last-child::before {
-            display: none;
+        .timeline-item {
+            position: relative;
+            margin-bottom: 1.5rem;
         }
-
-        .timeline-icon {
+        .timeline-marker {
             position: absolute;
-            left: 0;
-            top: 0.75rem;
-            width: 1.75rem;
-            height: 1.75rem;
+            left: -1.5rem;
+            width: 1rem;
+            height: 1rem;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background-color: white;
-            border: 2px solid #dc3545;
-            font-size: 0.75rem;
-            color: #dc3545;
-            z-index: 2;
+            background: var(--gray-300);
+            top: 0.25rem;
         }
-
-        .timeline-card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 0.75rem;
-            padding: 1rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .timeline-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.5rem;
-        }
-
-        .timeline-title {
-            font-size: 0.9375rem;
-            font-weight: 600;
-            color: #111827;
-            margin: 0;
-            line-height: 1.3;
-        }
-
-        .timeline-meta {
-            font-size: 0.8125rem;
-            color: #6b7280;
-            font-weight: 400;
-            margin-bottom: 0.25rem;
-        }
-
-        .timeline-details {
-            background-color: #f9fafb;
-            border: 1px solid #f3f4f6;
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            margin-top: 0.75rem;
-        }
-
-        .timeline-detail-label {
-            font-size: 0.6875rem;
-            font-weight: 600;
-            color: #374151;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.375rem;
-        }
-
-        .timeline-detail-content {
-            font-size: 0.8125rem;
-            color: #111827;
-            line-height: 1.4;
-        }
-
-        .timeline-timestamp {
-            font-size: 0.75rem;
-            color: #9ca3af;
-            text-align: right;
-            white-space: nowrap;
-            font-weight: 400;
-        }
-
-        .quantity-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8125rem;
-        }
-
-        .quantity-item::before {
-            content: '•';
-            color: #dc3545;
-            font-weight: bold;
-            font-size: 0.875rem;
-            line-height: 1;
-        }
-
-        .ri-id {
-            background-color: #e0e0e0 !important;
-            color: #333;
-            padding: 2px 6px !important;
-            border-radius: 4px !important;
-            font-size: 0.85em !important;
-            font-weight: normal;
+        .timeline-content {
+            padding-left: 1.5rem;
         }
 
         /* Responsive */
@@ -999,9 +926,9 @@ $rec_stmt->close();
         <?php endif; ?>
 
         <!-- Action History -->
-        <div class="action-history">
+        <div class="info-card">
             <h5><i class="bi bi-clock-history"></i> Action History</h5>
-            <div class="timeline">
+            <div class="timeline" style="margin-top: 1.5rem;">
                 <?php 
                 // Reset history pointer and fetch as array
                 $history->data_seek(0);
@@ -1009,129 +936,71 @@ $rec_stmt->close();
                 if (!empty($historyArray)): ?>
                     <?php foreach ($historyArray as $action): ?>
                         <div class="timeline-item">
-                            <?php 
-                            $iconSymbol = '';
-                            $actionTitle = '';
-                            
-                            switch ($action['action_type']) {
-                                case 'submitted':
-                                    $iconSymbol = 'bi-send';
-                                    $actionTitle = 'Request Submitted';
-                                    break;
-                                case 'approved':
-                                    $iconSymbol = 'bi-check';
-                                    $actionTitle = 'Request Approved';
-                                    break;
-                                case 'rejected':
-                                    $iconSymbol = 'bi-x';
-                                    $actionTitle = 'Request Rejected';
-                                    break;
-                                case 'officer_remark':
-                                    $iconSymbol = 'bi-info';
-                                    $actionTitle = 'Officer Remark';
-                                    break;
-                                case 'forwarded_to_admin':
-                                    $iconSymbol = 'bi-send';
-                                    $actionTitle = 'Forwarded for Final Approval';
-                                    break;
-                                case 'receipt_confirmed':
-                                    $iconSymbol = 'bi-check';
-                                    $actionTitle = 'Receipt Confirmed';
-                                    break;
-                                default:
-                                    $iconSymbol = 'bi-info';
-                                    $actionTitle = ucfirst(str_replace('_', ' ', $action['action_type']));
-                            }
-                            ?>
-                            <div class="timeline-icon">
-                                <i class="bi <?= $iconSymbol ?>"></i>
-                            </div>
-                            <div class="timeline-card">
-                                <div class="timeline-header">
-                                    <div>
-                                        <h6 class="timeline-title"><?= $actionTitle ?></h6>
-                                        <div class="timeline-meta">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></div>
-                                    </div>
-                                    <div class="timeline-timestamp"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></div>
-                                </div>
-                                
-                                <?php if (!empty($action['comment'])): ?>
-                                    <div class="timeline-details">
+                            <div class="timeline-marker"></div>
+                            <div class="timeline-content">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-1">
                                         <?php 
-                                        $comment = $action['comment'];
+                                        $actionText = '';
+                                        $icon = '';
+                                        $color = 'secondary';
                                         
-                                        // Check if comment contains release date information
-                                        if (strpos($comment, 'Release date:') !== false) {
-                                            echo '<div class="timeline-detail-label">Release date</div>';
-                                            // Convert 24-hour time to 12-hour format in release date comment
-                                            $formatted_comment = $comment;
-                                            if (preg_match('/(\d{4}-\d{2}-\d{2}\s+at\s+)(\d{2}:\d{2})/', $formatted_comment, $matches)) {
-                                                $date_part = $matches[1];
-                                                $time_part = $matches[2];
-                                                $formatted_time = date('g:i A', strtotime($time_part));
-                                                $formatted_comment = str_replace($matches[0], $date_part . $formatted_time, $formatted_comment);
-                                            }
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($formatted_comment)) . '</div>';
-                                        }
-                                        // Check if comment contains officer remarks
-                                        elseif (strpos($comment, 'OFFICER REMARK') !== false || $action['action_type'] === 'officer_remark') {
-                                            if (strpos($comment, 'OFFICER REMARK') !== false) {
-                                                $parts = explode('OFFICER REMARK', $comment);
-                                                $remarkPart = $parts[1] ?? '';
-                                                echo '<div class="timeline-detail-label">COMMENT</div>';
-                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
-                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars(trim($remarkPart))) . '</div>';
-                                                
-                                                // Check for quantity adjustments
-                                                if (strpos($comment, 'QUANTITY ADJUSTMENTS') !== false) {
-                                                    $adjustmentParts = explode('QUANTITY ADJUSTMENTS', $comment);
-                                                    $adjustments = $adjustmentParts[1] ?? '';
-                                                    echo '<div class="timeline-detail-label" style="margin-top: 1rem;">--- Quantity Adjustments ---</div>';
-                                                    echo '<div class="timeline-detail-content">';
-                                                    
-                                                    // Parse adjustments line by line and style ri_id part
-                                                    $lines = explode("\n", trim($adjustments));
-                                                    foreach ($lines as $line) {
-                                                        $line = trim($line);
-                                                        if (!empty($line) && strpos($line, ':') !== false) {
-                                                            // Extract item name, ri_id, and quantity
-                                                            preg_match('/^(.*?)\s*\(ri_id=\d+\)\s*:\s*(\d+)$/', $line, $matches);
-                                                            if (count($matches) === 3) {
-                                                                $itemName = htmlspecialchars($matches[1]);
-                                                                $quantity = htmlspecialchars($matches[2]);
-                                                                echo '<div class="quantity-item">';
-                                                                echo '<span class="item-name">' . $itemName . '</span> ';
-                                                                echo '<span class="quantity">: ' . $quantity . '</span>';
-                                                                echo '</div>';
-                                                            } else {
-                                                                // Fallback: try to remove ri_id if present
-                                                                $cleanLine = preg_replace('/\s*\(ri_id=\d+\)/', '', $line);
-                                                                echo '<div class="quantity-item">' . htmlspecialchars($cleanLine) . '</div>';
-                                                            }
-                                                        }
-                                                    }
-                                                    echo '</div>';
-                                                }
-                                            } else {
-                                                // This handles officer_remark actions where comment doesn't contain "OFFICER REMARK"
-                                                echo '<div class="timeline-detail-label">COMMENT</div>';
-                                                echo '<div class="timeline-detail-content">Officer remark:</div>';
-                                                echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
-                                            }
-                                        }
-                                        // Check for notes
-                                        elseif (strpos($comment, 'NOTE') !== false) {
-                                            echo '<div class="timeline-detail-label">NOTE</div>';
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
-                                        }
-                                        // General comment
-                                        else {
-                                            echo '<div class="timeline-detail-label">COMMENT</div>';
-                                            echo '<div class="timeline-detail-content">' . nl2br(htmlspecialchars($comment)) . '</div>';
+                                        switch ($action['action_type']) {
+                                            case 'submitted':
+                                                $actionText = 'Request Submitted';
+                                                $icon = 'bi-send';
+                                                $color = 'primary';
+                                                break;
+                                            case 'approved':
+                                                $actionText = 'Request Approved';
+                                                $icon = 'bi-check-circle';
+                                                $color = 'success';
+                                                break;
+                                            case 'rejected':
+                                                $actionText = 'Request Rejected';
+                                                $icon = 'bi-x-circle';
+                                                $color = 'danger';
+                                                break;
+                                            case 'returned':
+                                                $actionText = 'Request Returned for Revision';
+                                                $icon = 'bi-arrow-return-left';
+                                                $color = 'warning';
+                                                break;
+                                            case 'received':
+                                                $actionText = 'Items Received';
+                                                $icon = 'bi-check-circle-fill';
+                                                $color = 'info';
+                                                break;
+                                            case 'forwarded_to_admin':
+                                                $actionText = 'Forwarded for Final Approval';
+                                                $icon = 'bi-send';
+                                                $color = 'primary';
+                                                break;
+                                            case 'receipt_confirmed':
+                                                $actionText = 'Receipt Confirmed';
+                                                $icon = 'bi-check-circle-fill';
+                                                $color = 'success';
+                                                break;
+                                            default:
+                                                $actionText = ucfirst(str_replace('_', ' ', $action['action_type']));
+                                                $icon = 'bi-info-circle';
                                         }
                                         ?>
-                                    </div>
-                                <?php endif; ?>
+                                        <i class="bi <?= $icon ?> me-1 text-<?= $color ?>"></i>
+                                        <?= $actionText ?>
+                                    </h6>
+                                    <small class="text-muted"><?= date('M d, Y h:i A', strtotime($action['created_at'])) ?></small>
+                                </div>
+                                <div class="ms-4 mt-1">
+                                    <?php if (!empty($action['first_name'])): ?>
+                                        <small class="text-muted">By: <?= htmlspecialchars($action['first_name'] . ' ' . $action['last_name']) ?></small><br>
+                                    <?php endif; ?>
+                                    <?php if (!empty($action['comment'])): ?>
+                                        <div class="mt-1 p-2 bg-light rounded">
+                                            <small><?= nl2br(htmlspecialchars($action['comment'])) ?></small>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -1140,7 +1009,6 @@ $rec_stmt->close();
                         <i class="bi bi-info-circle"></i> No action history found for this request.
                     </div>
                 <?php endif; ?>
-            </div>
         </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
